@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import br.com.tunnelsystem.app.MainActivity
+import br.com.tunnelsystem.app.R
 import java.net.InetAddress
 
 /**
@@ -190,10 +191,13 @@ class TunnelVpnService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
+        // Icone da propria aplicacao. `android.R.drawable.stat_sys_vpn_ic`
+        // parece o icone certo, mas e um recurso interno da plataforma e nao
+        // existe no SDK publico — usa-lo nao compila.
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Tunel conectado")
             .setContentText(sessionName)
-            .setSmallIcon(android.R.drawable.stat_sys_vpn_ic)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openApp)
             .setOngoing(true)
             .build()
