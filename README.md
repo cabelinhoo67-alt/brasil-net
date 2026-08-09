@@ -278,9 +278,27 @@ incluindo as travas de segurança: [vps-agent/README.md](vps-agent/README.md).
 
 Dois workflows em [.github/workflows](.github/workflows):
 
-**[android-apk.yml](.github/workflows/android-apk.yml)** — gera o APK a cada push
-em `mobile/`, ou sob demanda em *Actions → Build APK → Run workflow*. O APK sai
+**[android-apk.yml](.github/workflows/android-apk.yml)** — gera os APKs a cada push
+em `mobile/`, ou sob demanda em *Actions → Build APK → Run workflow*. Eles saem
 como artefato do job, com o número do build no nome.
+
+O build usa `--split-per-abi`: sai **um APK por arquitetura** em vez de um único
+"gordo". O core nativo do v2ray é empacotado para toda ABI, então o APK único
+passa de 145 MB; separado, cada um fica em torno de 50 MB.
+
+| Arquivo | Para quem |
+|---|---|
+| `tunnel-app-<n>-arm64-v8a.apk` | praticamente todo aparelho atual |
+| `tunnel-app-<n>-armeabi-v7a.apk` | aparelhos antigos de 32 bits |
+| `tunnel-app-<n>-x86_64.apk` | emuladores |
+
+Na dúvida, distribua o **arm64-v8a**. Se precisar de um APK único que serve em
+qualquer aparelho (mais simples de mandar por WhatsApp, ao custo do tamanho),
+remova o `--split-per-abi` do workflow.
+
+> Ao dividir, o Flutter prefixa o `versionCode` por arquitetura (v7a → 1001,
+> arm64 → 2001, x86_64 → 3001). Isso é intencional e é o que a Play Store exige
+> para aceitar vários APKs da mesma versão.
 
 O repositório versiona só `lib/`, o `pubspec.yaml` e os dois arquivos Android que
 são nossos (manifesto e código Kotlin). O scaffolding do Gradle é gerado pelo

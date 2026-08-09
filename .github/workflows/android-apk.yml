@@ -122,12 +122,15 @@ jobs:
 
       # --stacktrace e --verbose fazem o Gradle imprimir a causa raiz. Sem isso
       # o log só diz "assembleRelease failed", que não dá para agir em cima.
-      - name: Build do APK
+      # --split-per-abi: um APK por arquitetura em vez de um único "gordo".
+      # O core nativo do v2ray é empacotado para toda ABI, então o APK único
+      # passa de 145 MB; separado, cada um fica em torno de 50 MB.
+      - name: Build dos APKs
         env:
           API_URL: ${{ inputs.api_url || vars.API_URL || 'http://10.0.2.2:3333' }}
         run: |
           echo "API_URL embutida: $API_URL"
-          flutter build apk --release \
+          flutter build apk --release --split-per-abi \
             --dart-define=API_URL=$API_URL \
             --verbose 2>&1 | tee ../build-apk.log
           exit ${PIPESTATUS[0]}
@@ -157,10 +160,15 @@ jobs:
           path: build-apk.log
           retention-days: 7
 
+      # app-arm64-v8a-release.apk -> tunnel-app-<build>-arm64-v8a.apk
       - name: Renomear com o número do build
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/tunnel-app-${{ github.run_number }}.apk
+          cd build/app/outputs/flutter-apk
+          for apk in app-*-release.apk; do
+            abi="${apk#app-}"; abi="${abi%-release.apk}"
+            mv "$apk" "tunnel-app-${{ github.run_number }}-${abi}.apk"
+          done
+          ls -lh tunnel-app-*.apk
 
       - uses: actions/upload-artifact@v4
         with:
