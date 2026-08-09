@@ -77,18 +77,21 @@ jobs:
 
           sed -i 's/br\.com\.tunnelsystem\.tunnel_app/br.com.tunnelsystem.app/g' "$GRADLE"
 
-          # foregroundServiceType="specialUse" exige API 34; VpnService, 21+.
-          sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 23/' "$GRADLE"
-          sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 23/' "$GRADLE"
+          # minSdk 26: NotificationChannel e Notification.Builder(ctx, canal)
+          # são API 26, e a VpnService usa os dois sem guarda de versão.
+          sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 26/' "$GRADLE"
+          sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 26/' "$GRADLE"
 
-          grep -nE 'namespace|applicationId|minSdk' "$GRADLE"
+          grep -nE 'namespace|applicationId|minSdk|compileSdk' "$GRADLE"
 
       - name: Instalar dependências
         run: flutter pub get
 
-      - name: Analisar código
-        # Não bloqueia o build: infos e warnings do analyzer não impedem o APK.
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+      # Falha aqui aponta o arquivo e a linha do erro em Dart. Deixar passar só
+      # empurra o problema para o Gradle, onde a mensagem é muito pior.
+      # Infos e warnings não bloqueiam; erros sim.
+      - name: Analisar código Dart
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       # Assinatura de release: opcional. Sem os secrets, o Flutter assina com a
       # chave de debug — o APK instala normalmente, mas não serve para a Play Store.
@@ -108,12 +111,42 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
+      # --stacktrace e --verbose fazem o Gradle imprimir a causa raiz. Sem isso
+      # o log só diz "assembleRelease failed", que não dá para agir em cima.
       - name: Build do APK
         env:
           API_URL: ${{ inputs.api_url || vars.API_URL || 'http://10.0.2.2:3333' }}
         run: |
           echo "API_URL embutida: $API_URL"
-          flutter build apk --release --dart-define=API_URL=$API_URL
+          flutter build apk --release \
+            --dart-define=API_URL=$API_URL \
+            --verbose 2>&1 | tee ../build-apk.log
+          exit ${PIPESTATUS[0]}
+
+      # O relatório do merger de manifesto e os logs do Kotlin ficam aqui;
+      # é o que responde "por que o Gradle quebrou".
+      - name: Coletar diagnóstico da falha
+        if: failure()
+        run: |
+          echo "===== erros do log ====="
+          grep -nE "error:|FAILURE:|Caused by:|Execution failed|> Task .* FAILED" \
+            ../build-apk.log | head -60 || true
+
+          echo "===== relatório do merger de manifesto ====="
+          find android/app/build -name 'manifest-merger*report.txt' \
+            -exec sh -c 'echo "--- $1 ---"; grep -iE "error|conflict" "$1" | head -40' _ {} \; || true
+
+          echo "===== manifesto final ====="
+          find android/app/build -name AndroidManifest.xml -path '*merged*' \
+            -exec sh -c 'echo "--- $1 ---"; cat "$1"' _ {} \; | head -80 || true
+
+      - name: Publicar log completo
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build-apk.log
+          retention-days: 7
 
       - name: Renomear com o número do build
         run: |

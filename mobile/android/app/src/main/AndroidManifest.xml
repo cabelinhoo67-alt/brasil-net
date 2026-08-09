@@ -1,4 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Leitura da operadora do chip (TelephonyManager) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
@@ -7,9 +9,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Necessarias quando o modulo de tunel for plugado (VPN em foreground) -->
+    <!-- VPN em foreground.
+         O android:minSdkVersion abaixo repete exatamente o que o plugin
+         flutter_v2ray declara: quando a mesma permissao aparece com atributos
+         diferentes, o merger de manifesto aborta o build. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
+        android:minSdkVersion="34"
+        tools:node="merge" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- O app so faz sentido em aparelho com telefonia; remova se quiser

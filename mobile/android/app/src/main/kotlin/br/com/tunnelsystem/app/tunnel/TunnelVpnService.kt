@@ -169,19 +169,19 @@ class TunnelVpnService : VpnService() {
 
     // --------------------------- notificacao ---------------------------------
 
+    // minSdk do app e 26, entao NotificationChannel e o Builder com canal
+    // estao sempre disponiveis — sem guarda de versao aqui.
     private fun startForegroundCompat(sessionName: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Conexao VPN",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Mostra o status do tunel enquanto ele esta ativo"
-                setShowBadge(false)
-            }
-            manager.createNotificationChannel(channel)
+        val manager = getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Conexao VPN",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Mostra o status do tunel enquanto ele esta ativo"
+            setShowBadge(false)
         }
+        manager.createNotificationChannel(channel)
 
         val openApp = PendingIntent.getActivity(
             this,
@@ -210,11 +210,6 @@ class TunnelVpnService : VpnService() {
     }
 
     private fun stopForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 }

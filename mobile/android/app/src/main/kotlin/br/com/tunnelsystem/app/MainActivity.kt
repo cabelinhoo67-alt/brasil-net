@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
-import androidx.annotation.NonNull
 import br.com.tunnelsystem.app.tunnel.VpnChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -25,7 +24,7 @@ class MainActivity : FlutterActivity() {
     private val simChannel = "br.com.tunnelsystem/sim"
     private var vpnChannel: VpnChannel? = null
 
-    override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         val messenger = flutterEngine.dartExecutor.binaryMessenger
