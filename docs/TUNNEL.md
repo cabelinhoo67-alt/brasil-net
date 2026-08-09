@@ -196,12 +196,35 @@ Flutter SDK na máquina onde ele foi gerado. Rode antes de confiar:
 cd mobile && flutter pub get && flutter analyze
 ```
 
-Pontos que merecem atenção no primeiro teste real:
+### O que já foi conferido contra o código-fonte dos pacotes
 
-1. **API do flutter_v2ray** varia entre versões. Se `parseFromURL` ou
-   `startV2Ray` não baterem, ajuste conforme a versão que o `pub get` trouxer.
-2. **`SSHForwardChannel`** — confirme que `.stream` e `.sink` existem na versão
-   do dartssh2 instalada.
-3. **Payload + TLS na mesma conexão** é o caminho menos comum; se o proxy mandar
+O primeiro build no CI falhou por versão inexistente (`flutter_v2ray ^1.0.20`).
+Aproveitei para baixar os dois pacotes e conferir a API real, membro por membro:
+
+| Usado no código | Existe? |
+|---|---|
+| `FlutterV2ray({onStatusChanged})`, `initializeV2Ray`, `requestPermission` | sim |
+| `startV2Ray({remark, config, proxyOnly})`, `stopV2Ray` | sim |
+| `FlutterV2ray.parseFromURL(url)` → `.remark`, `.getFullConfiguration()` | sim |
+| `V2RayStatus.state` (String, default `DISCONNECTED`) | sim |
+| `SSHClient(socket, username:, onPasswordRequest:)` | sim |
+| `client.authenticated`, `client.done`, `client.ping()`, `client.close()` | sim |
+| `client.forwardLocal(host, port)` → `.stream`, `.sink` | sim |
+| `SSHSocket`: `stream`, `sink`, `done`, `close()`, `destroy()` | sim |
+
+Essa conferência achou um erro de compilação: `SSHSocket` também declara
+`flush()`, e como `RawSSHSocket` usa `implements` (não `extends`), o método
+precisava existir mesmo tendo corpo padrão na interface. Corrigido.
+
+Versões travadas nas que foram conferidas: `dartssh2: ^2.22.0` e
+`flutter_v2ray: ^1.0.10` (a última publicada).
+
+### O que continua sem verificação
+
+1. **Compilação de verdade.** A conferência acima é leitura de código-fonte, não
+   `flutter analyze`. O build do CI é quem dá a palavra final.
+2. **Payload + TLS na mesma conexão** é o caminho menos comum; se o proxy mandar
    bytes extras antes do TLS, o app avisa com mensagem específica em vez de
-   travar.
+   travar — mas isso nunca rodou contra um servidor real.
+3. **Comportamento em rede móvel real** — payload aceito pelo proxy, SNI que
+   passa, estabilidade do keepalive. Só testando com chip.

@@ -26,12 +26,13 @@ dependencies:
   device_info_plus: ^10.1.2
   package_info_plus: ^8.0.2
 
-  # Motor de tunel SSH (handshake, auth e port forwarding em Dart puro)
-  dartssh2: ^2.9.0
+  # Motor de tunel SSH (handshake, auth e port forwarding em Dart puro).
+  # 2.22.x foi a versao conferida contra o codigo em lib/services/tunnel/.
+  dartssh2: ^2.22.0
 
   # Motor V2Ray/Xray — ja traz VpnService + tun2socks embutidos.
-  # Usado apenas quando o payload tem mode = V2RAY.
-  flutter_v2ray: ^1.0.20
+  # Usado apenas quando o payload tem mode = V2RAY. 1.0.10 e a ultima publicada.
+  flutter_v2ray: ^1.0.10
 
 dev_dependencies:
   flutter_test:

@@ -143,6 +143,16 @@ class RawSSHSocket implements SSHSocket {
   @override
   void destroy() => _handleClosed();
 
+  /// Empurra o que estiver na fila de saida.
+  ///
+  /// `implements SSHSocket` obriga a implementar todos os membros da interface,
+  /// inclusive os que tem corpo padrao — por isso este metodo existe. O que nao
+  /// couber no buffer do socket sai nos proximos eventos de escrita.
+  @override
+  Future<void> flush() async {
+    _flush();
+  }
+
   @override
   Future<void> close() async {
     _handleClosed();
