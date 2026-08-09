@@ -22,5 +22,7 @@ class AppConfig {
   /// Intervalo de medicao de ping exibido na tela principal.
   static const Duration pingInterval = Duration(seconds: 5);
 
-  static const Duration requestTimeout = Duration(seconds: 20);
+  /// Teto por requisicao. Curto de proposito: em rede movel ruim e melhor
+  /// falhar com mensagem clara do que deixar a tela travada.
+  static const Duration requestTimeout = Duration(seconds: 15);
 }

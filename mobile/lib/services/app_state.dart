@@ -174,10 +174,17 @@ class AppState extends ChangeNotifier {
       _error = null;
       return true;
     } on ApiException catch (e) {
+      // A ApiException ja vem com a causa traduzida (TIMEOUT, UNREACHABLE...).
+      debugPrint('[login] falhou: ${e.code} — ${e.message}');
       _error = e.message;
+      _lastLog = 'login: ${e.code ?? 'ERRO'}';
       return false;
-    } catch (e) {
-      _error = 'Nao foi possivel conectar ao servidor. Verifique sua internet.';
+    } catch (e, stack) {
+      // Nada deve cair aqui. Se cair, o console mostra o que foi — engolir a
+      // excecao numa mensagem generica ja custou horas de diagnostico errado.
+      debugPrint('[login] excecao inesperada: ${e.runtimeType}: $e');
+      debugPrintStack(stackTrace: stack, maxFrames: 8);
+      _error = 'Erro inesperado no login: ${e.runtimeType}. Veja o log do app.';
       return false;
     } finally {
       _loading = false;

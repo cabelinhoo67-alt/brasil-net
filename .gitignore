@@ -43,3 +43,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# APKs compilados: 50 MB cada, nao pertencem ao repositorio.
+# Distribua pelos artefatos do GitHub Actions ou por link direto.
+apks/

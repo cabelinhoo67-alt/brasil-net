@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'app_config.dart';
@@ -44,18 +47,71 @@ class ApiClient {
     );
   }
 
-  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) async {
-    final response = await _client
-        .get(_uri(path, query), headers: _headers)
-        .timeout(AppConfig.requestTimeout);
-    return _decode(response);
+  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) {
+    final uri = _uri(path, query);
+    return _send('GET', uri, () => _client.get(uri, headers: _headers));
   }
 
-  Future<Map<String, dynamic>> post(String path, [Map<String, dynamic>? body]) async {
-    final response = await _client
-        .post(_uri(path), headers: _headers, body: jsonEncode(body ?? {}))
-        .timeout(AppConfig.requestTimeout);
-    return _decode(response);
+  Future<Map<String, dynamic>> post(String path, [Map<String, dynamic>? body]) {
+    final uri = _uri(path);
+    return _send(
+      'POST',
+      uri,
+      () => _client.post(uri, headers: _headers, body: jsonEncode(body ?? {})),
+    );
+  }
+
+  /// Executa a chamada traduzindo falhas de rede em mensagens que dizem o que
+  /// aconteceu de verdade.
+  ///
+  /// Antes, qualquer erro virava "verifique sua internet" — que manda o usuario
+  /// procurar o problema no lugar errado quando, por exemplo, o servidor esta
+  /// fora do ar. Cada causa agora tem mensagem e `code` proprios, e a excecao
+  /// original vai para o console do Flutter (`flutter logs` / logcat).
+  Future<Map<String, dynamic>> _send(
+    String method,
+    Uri uri,
+    Future<http.Response> Function() call,
+  ) async {
+    try {
+      final response = await call().timeout(AppConfig.requestTimeout);
+      return _decode(response);
+    } on TimeoutException catch (error, stack) {
+      _logFailure(method, uri, error, stack);
+      throw ApiException(
+        'O servidor nao respondeu em ${AppConfig.requestTimeout.inSeconds}s. '
+        'Ele pode estar fora do ar ou a porta bloqueada.',
+        code: 'TIMEOUT',
+      );
+    } on SocketException catch (error, stack) {
+      _logFailure(method, uri, error, stack);
+
+      // errno 111/61 = recusada; 113/101 = host inalcancavel; 7/-2 = DNS.
+      final detail = error.osError?.message ?? error.message;
+      throw ApiException(
+        'Nao consegui alcancar ${uri.host}:${uri.port} ($detail). '
+        'Confira se o servidor esta rodando e se a porta esta liberada.',
+        code: 'UNREACHABLE',
+      );
+    } on HandshakeException catch (error, stack) {
+      _logFailure(method, uri, error, stack);
+      throw ApiException('Falha no certificado HTTPS do servidor.', code: 'TLS');
+    } on http.ClientException catch (error, stack) {
+      _logFailure(method, uri, error, stack);
+      throw ApiException('Conexao interrompida: ${error.message}', code: 'CONNECTION_LOST');
+    } on FormatException catch (error, stack) {
+      _logFailure(method, uri, error, stack);
+      throw ApiException(
+        'O servidor respondeu algo que nao e JSON. O endereco aponta mesmo para a API?',
+        code: 'BAD_RESPONSE',
+      );
+    }
+  }
+
+  void _logFailure(String method, Uri uri, Object error, StackTrace stack) {
+    debugPrint('[api] $method $uri falhou');
+    debugPrint('[api] ${error.runtimeType}: $error');
+    if (kDebugMode) debugPrintStack(stackTrace: stack, maxFrames: 6);
   }
 
   Map<String, dynamic> _decode(http.Response response) {
