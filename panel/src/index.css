@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Tema "Amaterasu": preto profundo com brasa vermelha.
+   A ideia visual e chama negra — o fundo nunca clareia, quem da volume e o
+   brilho vermelho nas bordas e nos estados ativos.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-void-950: #030303;
+  --color-void-900: #070707;
+  --color-void-850: #0c0c0d;
+  --color-void-800: #121214;
+  --color-void-700: #1a1a1d;
+  --color-void-600: #26262b;
+  --color-ash-400: #6b7280;
+  --color-ash-300: #9ca3af;
+
+  --color-ember-300: #ff7a6b;
+  --color-ember-400: #ff4d3d;
+  --color-ember-500: #e6212b;
+  --color-ember-600: #c1121f;
+  --color-ember-700: #8f0b16;
+
+  --color-ok-500: #22c55e;
+  --color-warn-500: #f59e0b;
+  --color-bad-500: #ef4444;
+
+  --shadow-ember: 0 0 0 1px rgb(230 33 43 / 0.35), 0 0 24px -6px rgb(230 33 43 / 0.55);
+  --shadow-ember-sm: 0 0 16px -6px rgb(230 33 43 / 0.6);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-void-950 text-zinc-200 antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* Brasa difusa no topo: da profundidade sem clarear o preto. */
+    background-image:
+      radial-gradient(900px 420px at 50% -220px, rgb(230 33 43 / 0.16), transparent 70%),
+      radial-gradient(600px 300px at 100% 0%, rgb(143 11 22 / 0.10), transparent 65%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-ember-600/40 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-void-600 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ember-700;
+  }
+
+  /* Foco visivel em vermelho: acessibilidade sem quebrar a identidade. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ember-500/70 ring-offset-2 ring-offset-void-950;
+  }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-void-850 border border-white/[0.06] rounded-2xl;
+  }
+
+  /* Cartao "em brasa": usado nos destaques (saldo, status conectado). */
+  .card-ember {
+    @apply bg-void-850 rounded-2xl border border-ember-600/30;
+    box-shadow: var(--shadow-ember-sm);
+  }
+
+  .ember-text {
+    background: linear-gradient(180deg, #ff7a6b 0%, #e6212b 55%, #8f0b16 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Rotulo que aparece so no celular, quando a tabela vira lista de cartoes. */
+  .cell-label {
+    @apply text-[10px] uppercase tracking-widest text-ash-400 md:hidden;
+  }
+
+  .flame-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(230 33 43 / 0.5), transparent);
+  }
+}
+
+@keyframes ember-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+.animate-ember {
+  animation: ember-pulse 2s ease-in-out infinite;
+}

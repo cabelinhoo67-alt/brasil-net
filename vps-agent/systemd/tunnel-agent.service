@@ -1,0 +1,33 @@
+[Unit]
+Description=Tunnel VPS Agent - sincroniza usuarios SSH com o painel
+Documentation=https://github.com/seu-usuario/tunnel-system
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Precisa de root: useradd, chpasswd e chage exigem privilegio.
+User=root
+WorkingDirectory=/opt/tunnel-agent
+EnvironmentFile=/opt/tunnel-agent/.env
+ExecStart=/usr/bin/node /opt/tunnel-agent/src/index.js
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tunnel-agent
+
+# Endurecimento: o agente precisa de muito privilegio, entao limitamos o
+# resto. NoNewPrivileges nao entra porque useradd chama helpers com setuid.
+ProtectHome=false
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=false
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

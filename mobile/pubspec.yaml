@@ -1,0 +1,44 @@
+name: tunnel_app
+description: Cliente de tunelamento com deteccao automatica de operadora
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Estado
+  provider: ^6.1.2
+
+  # Rede e armazenamento
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+
+  # Permissao de leitura do estado do telefone (READ_PHONE_STATE)
+  permission_handler: ^11.3.1
+
+  # Identificador estavel do aparelho (usado no controle de conexoes)
+  device_info_plus: ^10.1.2
+  package_info_plus: ^8.0.2
+
+  # Motor de tunel SSH (handshake, auth e port forwarding em Dart puro)
+  dartssh2: ^2.9.0
+
+  # Motor V2Ray/Xray — ja traz VpnService + tun2socks embutidos.
+  # Usado apenas quando o payload tem mode = V2RAY.
+  flutter_v2ray: ^1.0.20
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

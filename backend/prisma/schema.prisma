@@ -1,0 +1,326 @@
+// ---------------------------------------------------------------------------
+// Schema do sistema de tunelamento + revenda em cascata
+// Banco relacional: PostgreSQL (troque o provider para "mysql" se preferir)
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Hierarquia de usuarios
+// ADMIN    -> dono do sistema, credito infinito, enxerga tudo
+// MASTER   -> master revendedor, cria revendedores e clientes
+// RESELLER -> revendedor, cria apenas clientes finais
+// CLIENT   -> cliente final, so faz login no aplicativo mobile
+// ---------------------------------------------------------------------------
+enum Role {
+  ADMIN
+  MASTER
+  RESELLER
+  CLIENT
+}
+
+enum CreditKind {
+  ADD       // admin injetou credito no sistema
+  TRANSFER  // upline transferiu credito para downline
+  CONSUME   // credito gasto ao criar/renovar um cliente
+  REFUND    // estorno
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELED
+}
+
+enum PayloadMode {
+  SSH_DIRECT
+  SSH_PAYLOAD
+  SSH_SSL
+  V2RAY
+  SLOWDNS
+  UDP
+}
+
+// Acoes que o agente executa no sistema operacional da VPS
+enum ProvisionAction {
+  CREATE // useradd + senha + validade + limite de sessoes
+  UPDATE // senha, validade ou limite mudaram
+  LOCK   // bloqueio manual pelo painel
+  UNLOCK
+  DELETE // userdel + limpeza
+}
+
+enum ProvisionStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(CLIENT)
+  fullName     String?
+  whatsapp     String?
+  note         String?
+
+  // Hierarquia (self relation): quem criou / e dono deste usuario
+  parentId String?
+  parent   User?   @relation("UserHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children User[]  @relation("UserHierarchy")
+
+  // Saldo de creditos (ignorado para ADMIN, que tem credito infinito)
+  credits Int @default(0)
+
+  // Campos usados apenas quando role = CLIENT
+  expiresAt       DateTime?
+  connectionLimit Int       @default(1)
+  planId          String?
+  plan            Plan?     @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  isActive  Boolean  @default(true)
+  isBlocked Boolean  @default(false)
+  lastLogin DateTime?
+
+  sessions        Session[]
+  creditsSent     CreditTransaction[] @relation("CreditFrom")
+  creditsReceived CreditTransaction[] @relation("CreditTo")
+  orders          Order[]
+  provisionTasks  ProvisionTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([role])
+  @@map("users")
+}
+
+model Plan {
+  id              String  @id @default(uuid())
+  name            String  @unique
+  days            Int
+  connectionLimit Int     @default(1)
+  creditCost      Int     @default(1) // quantos creditos o revendedor gasta
+  priceCents      Int     @default(0) // preco em centavos para venda via WhatsApp/Pix
+  description     String?
+  isPublic        Boolean @default(true) // aparece no menu do bot
+  isActive        Boolean @default(true)
+  sortOrder       Int     @default(0)
+
+  users  User[]
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("plans")
+}
+
+// Operadoras reconhecidas pelo app (casadas com o MCC/MNC lido do SIM)
+model Operator {
+  id       String  @id @default(uuid())
+  code     String  @unique // CLARO, VIVO, TIM, OI, VERO, ALGAR...
+  name     String
+  // Lista de MCC+MNC (ex.: "72405") separada por virgula, usada como fallback
+  // quando o nome da operadora vem vazio/errado do TelephonyManager.
+  mccMncList String @default("")
+  logoUrl  String?
+  isActive Boolean @default(true)
+  sortOrder Int    @default(0)
+
+  payloads Payload[]
+
+  @@map("operators")
+}
+
+model Server {
+  id       String  @id @default(uuid())
+  name     String
+  host     String
+  sshPort  Int     @default(22)
+  sslPort  Int     @default(443)
+  proxyPort Int    @default(80)
+  country  String  @default("BR")
+  maxUsers Int     @default(0) // 0 = ilimitado
+  isActive Boolean @default(true)
+
+  // Agente que roda na VPS e cria os usuarios do Linux.
+  // Sem token cadastrado, o servidor simplesmente nao e provisionado.
+  agentToken    String?   @unique
+  agentLastSeen DateTime?
+  agentVersion  String?
+  agentUserCount Int?     // quantos usuarios o agente reportou na ultima sync
+
+  payloads Payload[]
+  provisionTasks ProvisionTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("servers")
+}
+
+/// Fila de trabalho do agente (padrao outbox).
+///
+/// O backend nunca fala com a VPS: ele enfileira aqui e o agente puxa. Isso
+/// evita guardar chave root no backend e sobrevive a VPS ficar offline —
+/// quando ela volta, a fila e drenada na ordem.
+model ProvisionTask {
+  id String @id @default(uuid())
+
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  // O usuario pode ser removido antes do agente processar a exclusao,
+  // por isso o username fica desnormalizado aqui.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username String
+
+  action ProvisionAction
+
+  // Hash bcrypt aplicado com `chpasswd -e`. Senha em claro nunca sai do painel.
+  passwordHash    String?
+  expiresAt       DateTime?
+  connectionLimit Int?
+
+  status    ProvisionStatus @default(PENDING)
+  attempts  Int             @default(0)
+  lastError String?
+
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([serverId, status, createdAt])
+  @@index([username])
+  @@map("provision_tasks")
+}
+
+// Configuracao de conexao entregue ao app, SEMPRE filtrada pela operadora
+model Payload {
+  id   String @id @default(uuid())
+  name String
+
+  operatorId String
+  operator   Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  serverId String?
+  server   Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  mode        PayloadMode @default(SSH_PAYLOAD)
+  // Conteudo da configuracao (payload HTTP, link vmess, config slowdns...)
+  content     String      @default("")
+  sni         String?
+  proxyHost   String?
+  proxyPort   Int?
+  dnsHost     String?
+  publicKey   String?
+  extraJson   String?     @default("{}") // campos livres por modo
+
+  // Restringe a versoes especificas do app (vazio = todas)
+  minAppVersion String?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([operatorId, isActive])
+  @@map("payloads")
+}
+
+// Controle de conexoes simultaneas por login
+model Session {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deviceId   String
+  deviceName String?
+  appVersion String?
+  operator   String?
+  ip         String?
+
+  startedAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  closedAt   DateTime?
+
+  // Nao usamos @@unique com closedAt porque NULL nao colide no Postgres;
+  // a unicidade por dispositivo e resolvida no SessionService.
+  @@index([userId, closedAt])
+  @@index([deviceId])
+  @@map("sessions")
+}
+
+model CreditTransaction {
+  id     String     @id @default(uuid())
+  kind   CreditKind
+  amount Int
+
+  fromUserId String?
+  fromUser   User?   @relation("CreditFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+
+  toUserId String?
+  toUser   User?   @relation("CreditTo", fields: [toUserId], references: [id], onDelete: SetNull)
+
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@map("credit_transactions")
+}
+
+// Venda automatizada via WhatsApp + Pix
+model Order {
+  id       String      @id @default(uuid())
+  status   OrderStatus @default(PENDING)
+  whatsapp String // JID/numero do comprador
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  amountCents Int
+
+  // Dados do gateway (Mercado Pago)
+  provider       String  @default("mercadopago")
+  providerRefId  String? @unique
+  pixCopyPaste   String?
+  pixQrBase64    String?
+  pixExpiresAt   DateTime?
+
+  // Usuario gerado apos a confirmacao do pagamento
+  createdUserId String?
+  createdUser   User?   @relation(fields: [createdUserId], references: [id], onDelete: SetNull)
+  plainPassword String? // enviado uma unica vez ao cliente pelo bot
+
+  // Revendedor dono da venda (quem recebe a comissao / de quem sai o credito)
+  ownerId String?
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([whatsapp, status])
+  @@map("orders")
+}
+
+// Parametros globais editaveis pelo painel (chave/valor)
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}

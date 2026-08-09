@@ -1,0 +1,17 @@
+{
+  "name": "tunnel-vps-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agente que sincroniza os usuarios SSH do Linux com o painel",
+  "scripts": {
+    "start": "node src/index.js",
+    "dry-run": "DRY_RUN=true node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}

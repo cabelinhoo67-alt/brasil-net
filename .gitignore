@@ -1,0 +1,43 @@
+# Dependencias
+node_modules/
+.pnp/
+
+# Ambiente
+.env
+.env.local
+*.local
+
+# Sessao do WhatsApp — NUNCA versionar: da acesso total a conta pareada
+bot-whatsapp/auth_session/
+
+# Prisma
+backend/prisma/migrations/dev.db*
+
+# Painel web
+panel/dist/
+panel/.vite/
+
+# Flutter
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/*.jks
+mobile/ios/Pods/
+
+# Fonte da lib nativa de tun2socks (clonada localmente, ver docs/TUNNEL.md)
+mobile/android/app/src/main/jni/hev-socks5-tunnel/
+
+# Logs e SO
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editores
+.idea/
+.vscode/
+*.swp
