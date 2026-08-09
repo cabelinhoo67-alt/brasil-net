@@ -46,7 +46,16 @@ fi
 command -v pm2 >/dev/null 2>&1 || { info "Instalando PM2"; npm install -g pm2 --silent; }
 
 # ------------------------------------------------------------------ codigo
-if [ -d "$APP_DIR/.git" ]; then
+# Tres cenarios, nesta ordem:
+#   1. OFFLINE=1 ou codigo ja presente sem .git  -> usa o que esta no disco
+#      (util quando o repo for privado ou a VPS nao tiver saida para o GitHub)
+#   2. repositorio git ja clonado                -> atualiza
+#   3. nada                                      -> clona
+if [ "${OFFLINE:-0}" = "1" ] || { [ -f "$APP_DIR/backend/package.json" ] && [ ! -d "$APP_DIR/.git" ]; }; then
+  [ -f "$APP_DIR/backend/package.json" ] \
+    || fail "OFFLINE=1 mas $APP_DIR/backend/package.json nao existe — envie o codigo primeiro"
+  info "Modo offline: usando o codigo ja presente em $APP_DIR"
+elif [ -d "$APP_DIR/.git" ]; then
   info "Atualizando codigo em $APP_DIR"
   git -C "$APP_DIR" fetch --all -q
   git -C "$APP_DIR" reset --hard origin/main -q
