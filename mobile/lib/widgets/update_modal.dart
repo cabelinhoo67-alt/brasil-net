@@ -1,15 +1,16 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
 import '../services/ota_service.dart';
 
-/// Modal de atualizacao com estetica glassmorphic.
+/// Modal de atualizacao: preto absoluto, sem transparencia de vidro.
 ///
 /// Reage ao [OtaService]: aparece quando ha update, mostra changelog, baixa com
 /// barra de progresso e se auto-destroi quando o instalador do sistema assume.
+/// Bloqueia toda interacao com o que estiver atras — nao ha gesto de dispensa
+/// por fora do card, so o botao "Agora nao" quando a atualizacao nao e
+/// obrigatoria.
 ///
 /// Montado uma vez na raiz (ver main.dart) como overlay — nao e empurrado na
 /// pilha de navegacao, entao aparece por cima de qualquer tela.
@@ -49,42 +50,40 @@ class _GlassOverlay extends StatelessWidget {
     final busy = downloading || installing;
 
     return Positioned.fill(
+      // Preto absoluto e opaco: nao da pra ver nem tocar o app por tras.
       child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 380),
-                child: _GlassCard(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _Header(version: info.version, mandatory: info.mandatory),
-                      const SizedBox(height: 16),
+        color: AppColors.background,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: _GlassCard(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Header(version: info.version, mandatory: info.mandatory),
+                    const SizedBox(height: 16),
 
-                      if (!busy) ...[
-                        _Changelog(lines: info.changelogLines),
-                        if (info.sizeBytes > 0) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            'Download de ${_mb(info.sizeBytes)}',
-                            style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                          ),
-                        ],
-                      ] else
-                        _ProgressBlock(
-                          progress: ota.progress,
-                          installing: installing,
+                    if (!busy) ...[
+                      _Changelog(lines: info.changelogLines),
+                      if (info.sizeBytes > 0) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Download de ${_mb(info.sizeBytes)}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                         ),
+                      ],
+                    ] else
+                      _ProgressBlock(
+                        progress: ota.progress,
+                        installing: installing,
+                      ),
 
-                      const SizedBox(height: 20),
-                      _Actions(ota: ota, info: info, busy: busy, installing: installing),
-                    ],
-                  ),
+                    const SizedBox(height: 20),
+                    _Actions(ota: ota, info: info, busy: busy, installing: installing),
+                  ],
                 ),
               ),
             ),
@@ -103,35 +102,24 @@ class _GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            // Vidro: branco translucido sobre o blur, com borda clara em cima.
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.14),
-                Colors.white.withValues(alpha: 0.05),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                blurRadius: 40,
-                spreadRadius: -8,
-              ),
-            ],
+    // Preto absoluto puro — nao e superficie de vidro. O brilho verde neon
+    // vem so da borda e da sombra externa, para dar profundidade sem recorrer
+    // a transparencia ou qualquer tom fora da paleta.
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.35), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.25),
+            blurRadius: 40,
+            spreadRadius: -8,
           ),
-          child: child,
-        ),
+        ],
       ),
+      child: child,
     );
   }
 }
