@@ -13,15 +13,43 @@ set -euo pipefail
 # --------------------------------------------------------------- parametros
 REPO="${REPO:-https://github.com/cabelinhoo67-alt/brasil-net.git}"
 APP_DIR="${APP_DIR:-/opt/tunnel-system}"
-PUBLIC_IP="${PUBLIC_IP:-$(curl -s -m 10 ifconfig.me || echo '187.77.37.249')}"
 API_PORT="${API_PORT:-3333}"
-PANEL_PORT="${PANEL_PORT:-8080}"
+
+# -4 forca IPv4. Sem isso, `ifconfig.me` responde o IPv6 da VPS e o painel
+# acaba compilado com "http://2a02:...::1:3333" — que alem de errado, e URL
+# invalida (IPv6 em URL exige colchetes). O painel entao nao acha a API.
+PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -s -m 10 ifconfig.me || true)}"
+if ! [[ "$PUBLIC_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  PUBLIC_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | grep -v '^127\.' | head -1)"
+fi
+[ -n "$PUBLIC_IP" ] || fail "nao consegui descobrir o IPv4 publico; rode com PUBLIC_IP=x.x.x.x"
+
+# Escolhe a primeira porta livre. A VPS pode ja hospedar outros servicos —
+# fixar 8080 fez o painel entrar em loop de EADDRINUSE contra um container
+# que ja usava a porta.
+if [ -n "${PANEL_PORT:-}" ]; then
+  :
+else
+  for _p in 8090 8091 8092 9090 9091; do
+    if ! ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${_p}$"; then
+      PANEL_PORT="$_p"; break
+    fi
+  done
+fi
+PANEL_PORT="${PANEL_PORT:-8090}"
 
 info() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$1"; }
 fail() { printf '\033[1;31m[x]\033[0m %s\n' "$1" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || fail "rode como root"
+
+# A API tem porta fixa; se algo ja a ocupa, e melhor parar do que subir um
+# servico que fica reiniciando sem ninguem perceber.
+if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${API_PORT:-3333}$"; then
+  pm2 pid tunnel-api >/dev/null 2>&1 \
+    || fail "a porta ${API_PORT:-3333} ja esta em uso por outro servico; use API_PORT=outra"
+fi
 
 info "Deploy em $PUBLIC_IP — API :$API_PORT, painel :$PANEL_PORT"
 
