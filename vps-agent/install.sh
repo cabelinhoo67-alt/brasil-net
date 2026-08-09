@@ -55,19 +55,7 @@ if [ ! -f "$SSHD_CONF" ]; then
   cat > "$SSHD_CONF" <<EOF
 # Gerado pelo tunnel-agent — ajuste conforme sua politica.
 
-# Os clientes autenticam com usuario e senha vindos do painel.
-PasswordAuthentication yes
-UsePAM yes
-
-# Encaminhamento de portas e o que o tunel usa (canal direct-tcpip).
-AllowTcpForwarding yes
-
-# Nada alem do tunel: sem shell, sem X11, sem agente, sem SFTP.
-PermitTTY no
-X11Forwarding no
-AllowAgentForwarding no
-PermitTunnel no
-
+# --- Global: nao restringe ninguem. -----------------------------------------
 # Derruba sessao morta e libera o slot de maxlogins.
 ClientAliveInterval 30
 ClientAliveCountMax 3
@@ -75,6 +63,21 @@ ClientAliveCountMax 3
 # Muitos clientes conectando ao mesmo tempo nao podem ser tratados como ataque.
 MaxStartups 100:30:600
 MaxSessions 20
+
+# --- Restricoes SO para as contas do tunel. ---------------------------------
+# Aplicar isto globalmente tiraria o terminal do root e de qualquer admin —
+# em uma VPS compartilhada, seria um estrago serio.
+Match Group $GROUP
+    PasswordAuthentication yes
+    AllowTcpForwarding yes
+    PermitTTY no
+    X11Forwarding no
+    AllowAgentForwarding no
+    PermitTunnel no
+
+# Fecha o contexto do Match. Sem isto, tudo que vier depois no sshd_config
+# principal (o Include costuma ficar no topo) herdaria as regras acima.
+Match all
 EOF
   RESTART_SSH=1
 else
