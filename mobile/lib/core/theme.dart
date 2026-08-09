@@ -28,7 +28,9 @@ ThemeData buildAppTheme() {
       elevation: 0,
       centerTitle: true,
     ),
-    cardTheme: CardTheme(
+    // CardThemeData, nao CardTheme: o Flutter separou os dois e `cardTheme`
+    // passou a receber a versao "Data".
+    cardTheme: CardThemeData(
       color: AppColors.surface,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

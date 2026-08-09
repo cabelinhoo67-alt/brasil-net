@@ -19,6 +19,8 @@ panel/.vite/
 
 # Flutter
 mobile/.dart_tool/
+# Gerado pelo `flutter pub get` a cada build; nao versionar.
+mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/build/

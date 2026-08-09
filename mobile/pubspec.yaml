@@ -41,5 +41,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/
+  # Sem declaracao de assets: o projeto nao tem nenhum, e apontar para uma
+  # pasta inexistente faz o `flutter pub get` falhar. Ao adicionar imagens ou
+  # fontes, crie a pasta e reponha a chave `assets:` aqui.

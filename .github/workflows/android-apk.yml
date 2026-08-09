@@ -64,6 +64,13 @@ jobs:
             pubspec.yaml
           # A MainActivity gerada no pacote errado duplicaria a nossa.
           rm -rf android/app/src/main/kotlin/br/com/tunnelsystem/tunnel_app
+
+          # O template cria test/widget_test.dart apontando para `MyApp`, que
+          # não existe aqui (a raiz é `TunnelApp`). Isso reprova o analyze.
+          # O projeto não tem suíte de testes; quando tiver, versione test/ e
+          # troque este rm por um `git checkout -- test`.
+          rm -rf test
+
           echo "--- kotlin/ apos restauracao ---"
           find android/app/src/main/kotlin -name '*.kt'
 
@@ -91,7 +98,9 @@ jobs:
       # empurra o problema para o Gradle, onde a mensagem é muito pior.
       # Infos e warnings não bloqueiam; erros sim.
       - name: Analisar código Dart
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        # Escopado em lib/: é o único código nosso, e evita que o analyzer
+        # caminhe por scaffolding gerado. Verificado local com Flutter 3.44.9.
+        run: flutter analyze lib --no-fatal-infos --no-fatal-warnings
 
       # Assinatura de release: opcional. Sem os secrets, o Flutter assina com a
       # chave de debug — o APK instala normalmente, mas não serve para a Play Store.
