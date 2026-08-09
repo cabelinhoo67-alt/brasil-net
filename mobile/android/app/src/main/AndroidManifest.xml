@@ -25,6 +25,14 @@
         tools:node="merge" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Mantem o CPU vivo com a tela apagada: sem isto o Doze Mode suspende o
+         processo e mata os sockets do tunel. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Janela flutuante de status (overlay). Concedida pelo usuario numa tela
+         propria do sistema, nao por dialogo de runtime. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- OTA: instalar o APK baixado dentro do proprio app. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -78,6 +86,13 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Tunel VPN mantido ativo enquanto o usuario esta conectado" />
         </service>
+
+        <!-- Janela flutuante de status. Nao e foreground: TYPE_APPLICATION_OVERLAY
+             mantem a view viva sem exigir notificacao propria; quem segura o
+             processo e a notificacao do TunnelVpnService. -->
+        <service
+            android:name=".tunnel.OverlayService"
+            android:exported="false" />
 
         <!-- FileProvider: entrega o APK baixado ao instalador do Android via
              content:// (a partir do Android 7 nao se passa file:// entre apps). -->

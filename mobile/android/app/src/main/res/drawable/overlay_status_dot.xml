@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bolinha de status do overlay. A cor real e trocada em runtime
+     (GradientDrawable.setColor) entre verde neon (conectado) e ouro
+     (reconectando) — este XML so define a forma. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#39FF14" />
+</shape>

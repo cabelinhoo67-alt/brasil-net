@@ -16,11 +16,14 @@ abstract class TunnelService {
   /// do proprio cliente (o mesmo usuario/senha do login do app).
   ///
   /// [bypassPackages] sao os apps que ficam fora do tunel (split tunneling).
+  /// [operatorCode] alimenta o fallback de bug host (SNI) quando o payload nao
+  /// tras um SNI proprio cadastrado.
   Future<void> connect(
     Payload payload, {
     required String username,
     required String password,
     List<String> bypassPackages = const [],
+    String? operatorCode,
   });
 
   Future<void> disconnect();

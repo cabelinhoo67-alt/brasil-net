@@ -150,7 +150,7 @@ class _Header extends StatelessWidget {
           height: 46,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [AppColors.primary, Color(0xFF7C3AED)],
+              colors: [AppColors.primary, AppColors.gold],
             ),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
@@ -300,7 +300,7 @@ class _Actions extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [AppColors.primary, Color(0xFF7C3AED)],
+                colors: [AppColors.primary, AppColors.gold],
               ),
               borderRadius: BorderRadius.circular(14),
               boxShadow: [

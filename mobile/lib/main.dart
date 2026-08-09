@@ -66,11 +66,13 @@ class _RootState extends State<_Root> with WidgetsBindingObserver {
   }
 
   /// Retomar o app rechecа atualizacao — cobre o caso do usuario ficar dias com
-  /// o app em segundo plano.
+  /// o app em segundo plano. Tambem reavalia a permissao de overlay: e o
+  /// momento em que o usuario volta da tela de permissao do sistema.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       context.read<OtaService>().check();
+      context.read<AppState>().recheckOverlayPermission();
     }
   }
 

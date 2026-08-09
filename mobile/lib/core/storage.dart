@@ -13,6 +13,7 @@ class Storage {
   static const _kPassword = 'saved_password';
   static const _kRemember = 'remember_me';
   static const _kDeviceId = 'device_id';
+  static const _kOverlay = 'overlay_enabled';
 
   static Future<void> saveToken(String token) => _secure.write(key: _kToken, value: token);
   static Future<String?> readToken() => _secure.read(key: _kToken);
@@ -51,5 +52,16 @@ class Storage {
 
     await prefs.setString(_kDeviceId, fallback);
     return fallback;
+  }
+
+  /// Preferencia do usuario pela janela flutuante de status (overlay).
+  static Future<bool> readOverlayPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kOverlay) ?? false;
+  }
+
+  static Future<void> saveOverlayPreference(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kOverlay, enabled);
   }
 }

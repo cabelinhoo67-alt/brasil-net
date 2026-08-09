@@ -15,7 +15,13 @@ class VpnBridge {
 
   Stream<String>? _stateStream;
 
-  /// Eventos do servico nativo: "connected", "disconnected", "error:<msg>".
+  /// Eventos do servico nativo:
+  ///   "connected"          — tunel ativo (inicial ou apos reconexao)
+  ///   "disconnected"       — usuario ou erro fatal encerrou
+  ///   "network_lost"       — sem rede; o nativo ja congelou o trafego
+  ///   "network_available"  — rede voltou; hora de refazer a sessao SSH
+  ///   "needs_reconnect"    — restart do sistema sem socks vivo; reconecte do zero
+  ///   "error:<msg>"        — falha ao subir a VPN
   Stream<String> get state =>
       _stateStream ??= _events.receiveBroadcastStream().map((e) => e.toString());
 
@@ -55,6 +61,16 @@ class VpnBridge {
       });
     } on PlatformException catch (error) {
       throw TunnelException('A VPN nao subiu.', detail: error.message);
+    }
+  }
+
+  /// Reata o tun2socks a uma porta SOCKS nova sem recriar a interface TUN.
+  /// E o que torna o handover Wi-Fi <-> 4G imperceptivel para os apps.
+  Future<void> rebind(int socksPort) async {
+    try {
+      await _method.invokeMethod<void>('rebind', {'socksPort': socksPort});
+    } on PlatformException catch (error) {
+      throw TunnelException('Nao consegui reatar o tunel.', detail: error.message);
     }
   }
 

@@ -9,6 +9,7 @@ import '../core/app_config.dart';
 import '../core/storage.dart';
 import '../models/models.dart';
 import 'bypass_store.dart';
+import 'overlay_service.dart';
 import 'sim_service.dart';
 import 'tunnel/tunnel_factory.dart';
 import 'tunnel/tunnel_service.dart';
@@ -50,6 +51,7 @@ class AppState extends ChangeNotifier {
   ConnectionStatus _connection = ConnectionStatus.disconnected;
   int _ping = -1;
   int _activeSessions = 0;
+  bool _overlayEnabled = false;
 
   String _deviceId = '';
   String _deviceName = 'Android';
@@ -71,6 +73,7 @@ class AppState extends ChangeNotifier {
   ConnectionStatus get connection => _connection;
   int get ping => _ping;
   int get activeSessions => _activeSessions;
+  bool get overlayEnabled => _overlayEnabled;
 
   String get pingLabel => _ping < 0 ? '--' : '$_ping ms';
 
@@ -87,6 +90,7 @@ class AppState extends ChangeNotifier {
 
     await _loadDeviceInfo();
     await bypass.load();
+    _overlayEnabled = await Storage.readOverlayPreference();
     await refreshSim();
 
     final saved = await Storage.readCredentials();
@@ -297,6 +301,7 @@ class AppState extends ChangeNotifier {
 
     _statusSub = engine.status.listen((value) {
       _connection = value;
+      _syncOverlay();
       notifyListeners();
     });
 
@@ -334,6 +339,7 @@ class AppState extends ChangeNotifier {
         username: _user!.username,
         password: _password!,
         bypassPackages: bypass.packages.toList(),
+        operatorCode: _operator.code,
       );
     } on TunnelException catch (e) {
       _error = e.message;
@@ -378,6 +384,62 @@ class AppState extends ChangeNotifier {
     if (value != _ping) {
       _ping = value;
       notifyListeners();
+    }
+    if (_overlayEnabled && _connection.isOnline) {
+      OverlayService.update(pingMs: _ping, status: 'connected');
+    }
+  }
+
+  // ------------------------------- overlay ----------------------------------
+
+  /// Liga/desliga a janela flutuante. Pede a permissao do sistema na primeira
+  /// vez — ela nao vem por dialogo de runtime, entao [enabled] so reflete o
+  /// que realmente foi concedido.
+  Future<bool> setOverlayEnabled(bool enabled) async {
+    if (enabled) {
+      final granted = await OverlayService.hasPermission();
+      if (!granted) {
+        await OverlayService.requestPermission();
+        // A concessao acontece numa tela do sistema; o app so sabe o
+        // resultado quando volta ao primeiro plano. Nao habilita "no escuro".
+        _overlayEnabled = false;
+        await Storage.saveOverlayPreference(false);
+        notifyListeners();
+        return false;
+      }
+    } else {
+      await OverlayService.hide();
+    }
+
+    _overlayEnabled = enabled;
+    await Storage.saveOverlayPreference(enabled);
+    _syncOverlay();
+    notifyListeners();
+    return enabled;
+  }
+
+  /// Chamado ao voltar ao app (ex.: apos a tela de permissao do sistema) para
+  /// reavaliar se o overlay pode subir agora.
+  Future<void> recheckOverlayPermission() async {
+    if (!_overlayEnabled) return;
+    final granted = await OverlayService.hasPermission();
+    if (granted) _syncOverlay();
+  }
+
+  void _syncOverlay() {
+    if (!_overlayEnabled) return;
+
+    if (_connection.isOnline || _connection.isBusy) {
+      OverlayService.show().then((shown) {
+        if (shown) {
+          OverlayService.update(
+            pingMs: _ping,
+            status: _connection.isOnline ? 'connected' : 'connecting',
+          );
+        }
+      });
+    } else {
+      OverlayService.hide();
     }
   }
 

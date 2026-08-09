@@ -50,6 +50,9 @@ class VpnChannel(
             "prepare" -> prepare(result)
             "start" -> start(call, result)
             "stop" -> stop(result)
+            // Reata o tun2socks a uma sessao SSH nova sem derrubar a TUN —
+            // e o que torna o handover Wi-Fi <-> 4G imperceptivel.
+            "rebind" -> rebind(call.argument<Int>("socksPort") ?: 0, result)
             // Consulta os dois lados: o servico e o proprio motor nativo.
             "isRunning" -> result.success(TunnelVpnService.isRunning && Tun2Socks.isRunning())
             "stats" -> {
@@ -127,6 +130,29 @@ class VpnChannel(
     private fun stop(result: MethodChannel.Result) {
         val intent = Intent(activity, TunnelVpnService::class.java).apply {
             action = TunnelVpnService.ACTION_STOP
+        }
+        startService(activity, intent)
+        result.success(null)
+    }
+
+    /**
+     * Aponta o tun2socks para uma porta SOCKS nova sem recriar a interface TUN.
+     * Vai por Intent em vez de referencia estatica ao servico: o Android e quem
+     * entrega a mensagem a instancia viva, sem risco de segurar um objeto morto.
+     */
+    private fun rebind(socksPort: Int, result: MethodChannel.Result) {
+        if (socksPort <= 0) {
+            result.error("BAD_ARGS", "socksPort invalido", null)
+            return
+        }
+        if (!TunnelVpnService.isRunning) {
+            result.error("NOT_RUNNING", "a VPN nao esta ativa", null)
+            return
+        }
+
+        val intent = Intent(activity, TunnelVpnService::class.java).apply {
+            action = TunnelVpnService.ACTION_REBIND
+            putExtra(TunnelVpnService.EXTRA_SOCKS_PORT, socksPort)
         }
         startService(activity, intent)
         result.success(null)

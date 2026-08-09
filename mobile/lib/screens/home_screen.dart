@@ -35,6 +35,14 @@ class HomeScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
+            tooltip: state.overlayEnabled ? 'Desativar janela flutuante' : 'Ativar janela flutuante',
+            icon: Icon(
+              state.overlayEnabled ? Icons.picture_in_picture_alt : Icons.picture_in_picture_alt_outlined,
+              color: state.overlayEnabled ? AppColors.primary : null,
+            ),
+            onPressed: () => _toggleOverlay(context, state),
+          ),
+          IconButton(
             tooltip: 'Bypass de apps',
             icon: const Icon(Icons.shield_moon_outlined),
             onPressed: () => Navigator.of(context).push(
@@ -88,6 +96,23 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _toggleOverlay(BuildContext context, AppState state) async {
+    final granted = await state.setOverlayEnabled(!state.overlayEnabled);
+
+    if (!context.mounted) return;
+
+    if (!granted && !state.overlayEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Autorize "Exibir sobre outros apps" na tela do sistema e tente de novo.',
+          ),
+          backgroundColor: AppColors.surfaceAlt,
+        ),
+      );
+    }
   }
 
   Future<void> _confirmLogout(BuildContext context) async {

@@ -77,6 +77,7 @@ class V2RayTunnelService implements TunnelService {
     required String username,
     required String password,
     List<String> bypassPackages = const [],
+    String? operatorCode,
   }) async {
     _emit(ConnectionStatus.connecting);
 

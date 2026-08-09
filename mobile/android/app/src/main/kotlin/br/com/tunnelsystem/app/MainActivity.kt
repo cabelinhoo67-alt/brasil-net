@@ -6,6 +6,7 @@ import android.os.Build
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import br.com.tunnelsystem.app.tunnel.DeviceChannel
+import br.com.tunnelsystem.app.tunnel.OverlayChannel
 import br.com.tunnelsystem.app.tunnel.VpnChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -24,6 +25,7 @@ class MainActivity : FlutterActivity() {
 
     private val simChannel = "br.com.tunnelsystem/sim"
     private var vpnChannel: VpnChannel? = null
+    private var overlayChannel: OverlayChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -40,6 +42,7 @@ class MainActivity : FlutterActivity() {
 
         vpnChannel = VpnChannel(this, messenger)
         DeviceChannel(this, messenger)
+        overlayChannel = OverlayChannel(this, messenger)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -53,6 +56,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         vpnChannel?.dispose()
         vpnChannel = null
+        overlayChannel?.dispose()
+        overlayChannel = null
         super.onDestroy()
     }
 
