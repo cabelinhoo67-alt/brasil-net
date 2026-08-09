@@ -14,10 +14,13 @@ abstract class TunnelService {
 
   /// Sobe o tunel para o [payload] escolhido, autenticando com as credenciais
   /// do proprio cliente (o mesmo usuario/senha do login do app).
+  ///
+  /// [bypassPackages] sao os apps que ficam fora do tunel (split tunneling).
   Future<void> connect(
     Payload payload, {
     required String username,
     required String password,
+    List<String> bypassPackages = const [],
   });
 
   Future<void> disconnect();

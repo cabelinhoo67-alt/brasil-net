@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -35,6 +36,7 @@ class TunnelVpnService : VpnService() {
 
         const val EXTRA_SOCKS_PORT = "socksPort"
         const val EXTRA_SESSION_NAME = "sessionName"
+        const val EXTRA_BYPASS_PACKAGES = "bypassPackages"
 
         private const val CHANNEL_ID = "tunnel_vpn"
         private const val NOTIFICATION_ID = 4242
@@ -67,6 +69,7 @@ class TunnelVpnService : VpnService() {
 
         val socksPort = intent?.getIntExtra(EXTRA_SOCKS_PORT, 0) ?: 0
         val sessionName = intent?.getStringExtra(EXTRA_SESSION_NAME) ?: "Tunnel"
+        val bypass = intent?.getStringArrayListExtra(EXTRA_BYPASS_PACKAGES) ?: arrayListOf()
 
         if (socksPort <= 0) {
             fail("Porta SOCKS invalida.")
@@ -74,7 +77,7 @@ class TunnelVpnService : VpnService() {
         }
 
         return try {
-            startTunnel(socksPort, sessionName)
+            startTunnel(socksPort, sessionName, bypass)
             // START_STICKY faria o Android recriar o servico sem a sessao SSH
             // do lado Dart — o tunel voltaria quebrado. Melhor nao ressuscitar.
             START_NOT_STICKY
@@ -84,7 +87,7 @@ class TunnelVpnService : VpnService() {
         }
     }
 
-    private fun startTunnel(socksPort: Int, sessionName: String) {
+    private fun startTunnel(socksPort: Int, sessionName: String, bypassPackages: List<String>) {
         if (!Tun2Socks.available) {
             throw IllegalStateException(
                 "Motor tun2socks ausente no APK. Veja docs/TUNNEL.md (${Tun2Socks.loadError})."
@@ -102,12 +105,7 @@ class TunnelVpnService : VpnService() {
 
         DNS_SERVERS.forEach { builder.addDnsServer(InetAddress.getByName(it)) }
 
-        // ...menos o proprio app, que precisa falar direto com a VPS.
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (e: Exception) {
-            Log.w(TAG, "nao consegui excluir o proprio app do tunel: ${e.message}")
-        }
+        applyDisallowed(builder, bypassPackages)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -128,6 +126,39 @@ class TunnelVpnService : VpnService() {
         isRunning = true
         listener?.invoke("connected")
         Log.i(TAG, "VPN ativa (socks=$socksPort)")
+    }
+
+    /**
+     * Split tunneling: tira do tunel o proprio app e os pacotes do bypass.
+     *
+     * `addDisallowedApplication` lanca PackageManager.NameNotFoundException
+     * quando o pacote nao esta instalado — e o motorista raramente tem TODOS os
+     * apps da lista. Sem o try-catch por item, um unico app ausente aborta o
+     * `establish()` e o tunel inteiro nao sobe. Por isso cada pacote e aplicado
+     * isoladamente: os que existem entram, os que faltam sao ignorados.
+     */
+    private fun applyDisallowed(builder: Builder, bypassPackages: List<String>) {
+        // O proprio app SEMPRE fica de fora, senao a conexao SSH que sustenta a
+        // VPN seria roteada para dentro dela mesma (loop).
+        val targets = LinkedHashSet<String>().apply {
+            add(packageName)
+            addAll(bypassPackages)
+        }
+
+        var applied = 0
+        for (pkg in targets) {
+            if (pkg.isBlank()) continue
+            try {
+                builder.addDisallowedApplication(pkg)
+                applied++
+            } catch (e: PackageManager.NameNotFoundException) {
+                // App nao instalado neste aparelho — normal, so ignora.
+                Log.d(TAG, "bypass ignorado (nao instalado): $pkg")
+            } catch (e: Exception) {
+                Log.w(TAG, "bypass falhou para $pkg: ${e.message}")
+            }
+        }
+        Log.i(TAG, "split tunneling: $applied de ${targets.size} pacote(s) fora do tunel")
     }
 
     private fun stopTunnel() {

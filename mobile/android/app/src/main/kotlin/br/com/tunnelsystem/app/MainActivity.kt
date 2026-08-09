@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import br.com.tunnelsystem.app.tunnel.DeviceChannel
 import br.com.tunnelsystem.app.tunnel.VpnChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -38,6 +39,7 @@ class MainActivity : FlutterActivity() {
         }
 
         vpnChannel = VpnChannel(this, messenger)
+        DeviceChannel(this, messenger)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

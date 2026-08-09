@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Caminhos que o FileProvider pode compartilhar.
+     O OTA salva o APK em getExternalCacheDir()/updates; e so isso que
+     precisa ser exposto ao instalador do sistema. -->
+<paths>
+    <external-cache-path name="updates" path="updates/" />
+    <cache-path name="cache" path="updates/" />
+</paths>

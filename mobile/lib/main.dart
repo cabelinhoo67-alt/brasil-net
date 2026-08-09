@@ -8,6 +8,8 @@ import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/app_state.dart';
 import 'services/location_consent.dart';
+import 'services/ota_service.dart';
+import 'widgets/update_modal.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,12 +21,18 @@ class TunnelApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AppState()..bootstrap(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppState()..bootstrap()),
+        ChangeNotifierProvider(create: (_) => OtaService()),
+      ],
       child: MaterialApp(
         title: AppConfig.appName,
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
+        // O UpdateGate envolve TODAS as rotas: o modal de atualizacao aparece
+        // por cima de qualquer tela, sem entrar na pilha de navegacao.
+        builder: (context, child) => UpdateGate(child: child ?? const SizedBox()),
         home: const _Root(),
       ),
     );
@@ -38,8 +46,33 @@ class _Root extends StatefulWidget {
   State<_Root> createState() => _RootState();
 }
 
-class _RootState extends State<_Root> {
+class _RootState extends State<_Root> with WidgetsBindingObserver {
   bool _askedLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Checa OTA na abertura.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<OtaService>().check();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Retomar o app rechecа atualizacao — cobre o caso do usuario ficar dias com
+  /// o app em segundo plano.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      context.read<OtaService>().check();
+    }
+  }
 
   /// O consentimento de localizacao e pedido aqui, e nao dentro das telas,
   /// para valer tanto para quem faz login agora quanto para quem entra
@@ -48,7 +81,6 @@ class _RootState extends State<_Root> {
     if (_askedLocation) return;
     _askedLocation = true;
 
-    // Espera o primeiro frame: abrir dialogo durante o build quebra.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) LocationConsent.maybeAsk(context);
     });

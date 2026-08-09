@@ -25,6 +25,16 @@
         tools:node="merge" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- OTA: instalar o APK baixado dentro do proprio app. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Ver a lista de apps instalados (tela de bypass). QUERY_ALL_PACKAGES e
+         permissao sensivel na Play Store; para um app de VPN com split
+         tunneling ela e justificavel, mas se for publicar, prefira declarar
+         apenas os pacotes-alvo em <queries>. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <!-- O app so faz sentido em aparelho com telefonia; remova se quiser
          publicar tambem para tablets sem chip. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -69,6 +79,18 @@
                 android:value="Tunel VPN mantido ativo enquanto o usuario esta conectado" />
         </service>
 
+        <!-- FileProvider: entrega o APK baixado ao instalador do Android via
+             content:// (a partir do Android 7 nao se passa file:// entre apps). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -78,6 +100,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
+        </intent>
+        <!-- Apps com tela de abertura, para popular a lista de bypass. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 </manifest>

@@ -9,6 +9,7 @@ import { forbidden, notFound, unauthorized } from '../../utils/errors.js';
 import { resolveOperator } from './operator.resolver.js';
 import * as sessions from './sessions.service.js';
 import { daysLeft } from '../users/users.service.js';
+import { evaluate, readVersionInfo } from './version.service.js';
 
 const router = Router();
 
@@ -224,6 +225,23 @@ router.post(
   asyncHandler(async (req, res) => {
     const closed = await sessions.closeSession(req.user.id, req.tokenPayload.deviceId);
     res.json({ ok: true, closed });
+  }),
+);
+
+/**
+ * GET /api/app/version?build=NN
+ * Checagem de atualizacao (OTA). Sem autenticacao: o app consulta no ciclo de
+ * vida (abertura, retomada, apos o login) sem depender de estar logado.
+ *
+ * A comparacao e sempre por build (inteiro monotonico), nunca por string de
+ * versao — ordenar "1.10.0" vs "1.9.0" como texto daria o resultado errado.
+ */
+router.get(
+  '/version',
+  appLimiter,
+  asyncHandler(async (req, res) => {
+    const info = await readVersionInfo();
+    res.json(evaluate(info, req.query.build));
   }),
 );
 

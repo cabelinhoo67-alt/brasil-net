@@ -61,6 +61,8 @@ jobs:
           git checkout -- \
             android/app/src/main/AndroidManifest.xml \
             android/app/src/main/kotlin \
+            android/app/src/main/res \
+            android/app/src/main/jniLibs \
             pubspec.yaml
           # A MainActivity gerada no pacote errado duplicaria a nossa.
           rm -rf android/app/src/main/kotlin/br/com/tunnelsystem/tunnel_app
@@ -90,6 +92,23 @@ jobs:
           sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 26/' "$GRADLE"
 
           grep -nE 'namespace|applicationId|minSdk|compileSdk' "$GRADLE"
+
+      # androidx.core (FileProvider) e androidx.annotation (@Keep) chegam
+      # transitivos do Flutter, mas depender disso é frágil — uma bump do
+      # embedding pode removê-los. Declaramos explicitamente.
+      - name: Injetar dependências androidx
+        run: |
+          GRADLE=android/app/build.gradle.kts
+          if ! grep -q "androidx.core:core-ktx" "$GRADLE"; then
+            cat >> "$GRADLE" <<'GRADLE_EOF'
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.annotation:annotation:1.8.2")
+}
+GRADLE_EOF
+          fi
+          tail -6 "$GRADLE"
 
       - name: Instalar dependências
         run: flutter pub get

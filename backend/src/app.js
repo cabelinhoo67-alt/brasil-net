@@ -19,6 +19,7 @@ import plansRoutes from './modules/plans/plans.routes.js';
 import mobileRoutes from './modules/mobile/mobile.routes.js';
 import paymentsRoutes from './modules/payments/payments.routes.js';
 import agentRoutes from './modules/agent/agent.routes.js';
+import settingsRoutes from './modules/settings/settings.routes.js';
 
 export function createApp() {
   const app = express();
@@ -38,6 +39,7 @@ export function createApp() {
   app.use('/api/servers', serversRoutes);
   app.use('/api/plans', plansRoutes);
   app.use('/api/payments', paymentsRoutes);
+  app.use('/api/settings', settingsRoutes);
 
   // API consumida pelo aplicativo Flutter
   app.use('/api/app', mobileRoutes);

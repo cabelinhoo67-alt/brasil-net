@@ -76,6 +76,7 @@ class V2RayTunnelService implements TunnelService {
     Payload payload, {
     required String username,
     required String password,
+    List<String> bypassPackages = const [],
   }) async {
     _emit(ConnectionStatus.connecting);
 
@@ -100,6 +101,8 @@ class V2RayTunnelService implements TunnelService {
       await _engine.startV2Ray(
         remark: payload.name,
         config: parsed.getFullConfiguration(),
+        // O flutter_v2ray tem split tunneling proprio: blockedApps ficam fora.
+        blockedApps: bypassPackages.isEmpty ? null : bypassPackages,
         proxyOnly: false,
       );
     } on TunnelException {

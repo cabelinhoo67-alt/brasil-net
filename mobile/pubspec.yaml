@@ -34,6 +34,9 @@ dependencies:
   # Usado apenas quando o payload tem mode = V2RAY. 1.0.10 e a ultima publicada.
   flutter_v2ray: ^1.0.10
 
+  # Download do APK no OTA, com progresso em tempo real.
+  dio: ^5.7.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

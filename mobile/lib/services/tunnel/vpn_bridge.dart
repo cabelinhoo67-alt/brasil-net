@@ -35,6 +35,7 @@ class VpnBridge {
   Future<void> start({
     required int socksPort,
     required String bypassHost,
+    List<String> bypassPackages = const [],
     String? sessionName,
   }) async {
     final allowed = await prepare();
@@ -48,6 +49,8 @@ class VpnBridge {
       await _method.invokeMethod<void>('start', {
         'socksPort': socksPort,
         'bypassHost': bypassHost,
+        // Split tunneling: apps que ficam FORA do tunel.
+        'bypassPackages': bypassPackages,
         'sessionName': sessionName ?? 'Tunnel',
       });
     } on PlatformException catch (error) {

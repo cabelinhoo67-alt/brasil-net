@@ -67,6 +67,7 @@ class SshTunnelService implements TunnelService {
     Payload payload, {
     required String username,
     required String password,
+    List<String> bypassPackages = const [],
   }) async {
     await _teardown();
     _emit(ConnectionStatus.connecting);
@@ -129,9 +130,11 @@ class SshTunnelService implements TunnelService {
           // O trafego para o proprio servidor nao pode entrar no tunel,
           // senao a conexao SSH se morde (loop de roteamento).
           bypassHost: server.host,
+          bypassPackages: bypassPackages,
           sessionName: payload.name,
         );
-        _log('VPN ativa — trafego do aparelho roteado pelo tunel');
+        final extra = bypassPackages.isEmpty ? '' : ' (${bypassPackages.length} app(s) fora)';
+        _log('VPN ativa — trafego do aparelho roteado pelo tunel$extra');
       } else {
         _log('modo diagnostico: SOCKS5 em 127.0.0.1:$socksPort');
       }

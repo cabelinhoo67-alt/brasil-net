@@ -8,6 +8,7 @@ import '../core/api_client.dart';
 import '../core/app_config.dart';
 import '../core/storage.dart';
 import '../models/models.dart';
+import 'bypass_store.dart';
 import 'sim_service.dart';
 import 'tunnel/tunnel_factory.dart';
 import 'tunnel/tunnel_service.dart';
@@ -15,9 +16,14 @@ import 'tunnel/tunnel_service.dart';
 /// Estado global do app: autenticacao, operadora detectada, payloads,
 /// status do tunel, ping e heartbeat de sessao.
 class AppState extends ChangeNotifier {
-  AppState({ApiClient? api}) : _api = api ?? ApiClient();
+  AppState({ApiClient? api, BypassStore? bypass})
+      : _api = api ?? ApiClient(),
+        bypass = bypass ?? BypassStore();
 
   final ApiClient _api;
+
+  /// Apps que ficam fora do tunel. Exposto para a tela de bypass.
+  final BypassStore bypass;
 
   TunnelService? _tunnel;
   StreamSubscription<ConnectionStatus>? _statusSub;
@@ -80,6 +86,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     await _loadDeviceInfo();
+    await bypass.load();
     await refreshSim();
 
     final saved = await Storage.readCredentials();
@@ -326,6 +333,7 @@ class AppState extends ChangeNotifier {
         payload,
         username: _user!.username,
         password: _password!,
+        bypassPackages: bypass.packages.toList(),
       );
     } on TunnelException catch (e) {
       _error = e.message;

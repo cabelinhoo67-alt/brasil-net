@@ -92,6 +92,7 @@ class VpnChannel(
     private fun start(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
         val socksPort = call.argument<Int>("socksPort") ?: 0
         val sessionName = call.argument<String>("sessionName") ?: "Tunnel"
+        val bypass = call.argument<List<String>>("bypassPackages") ?: emptyList()
 
         if (socksPort <= 0) {
             result.error("BAD_ARGS", "socksPort invalido", null)
@@ -116,6 +117,7 @@ class VpnChannel(
             action = TunnelVpnService.ACTION_START
             putExtra(TunnelVpnService.EXTRA_SOCKS_PORT, socksPort)
             putExtra(TunnelVpnService.EXTRA_SESSION_NAME, sessionName)
+            putStringArrayListExtra(TunnelVpnService.EXTRA_BYPASS_PACKAGES, ArrayList(bypass))
         }
 
         startService(activity, intent)

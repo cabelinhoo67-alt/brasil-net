@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/app_state.dart';
 import '../widgets/connection_card.dart';
 import '../widgets/payload_tile.dart';
+import 'bypass_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -33,6 +34,13 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Bypass de apps',
+            icon: const Icon(Icons.shield_moon_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const BypassScreen()),
+            ),
+          ),
           IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout_rounded),
