@@ -65,69 +65,73 @@ confidencialidade real vem do SSH por dentro; o TLS aqui serve para o SNI.
 
 ---
 
-## Adicionando a biblioteca tun2socks
+## A biblioteca tun2socks — já incluída
 
-Esta é a única peça que o projeto não escreve. Converter pacotes IP crus em
-conexões SOCKS5 exige uma pilha TCP/IP completa em espaço de usuário — usar uma
-pronta e testada é o certo.
+Converter pacotes IP crus em conexões SOCKS5 exige uma pilha TCP/IP completa em
+espaço de usuário. Usamos o
+[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) 2.17.0 (MIT),
+compilado do fonte com o NDK.
 
-Usamos o [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) (MIT).
-O `Tun2Socks.kt` já espera exatamente a assinatura JNI dele.
+As `.so` estão **versionadas** no repositório:
 
-### Opção A — compilar junto (recomendado)
+```
+mobile/android/app/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so     336 KB
+mobile/android/app/src/main/jniLibs/armeabi-v7a/libhev-socks5-tunnel.so   229 KB
+```
+
+O Gradle empacota `jniLibs/` sem configuração adicional, então o CI gera o APK
+sem precisar do NDK.
+
+### Reproduzindo os binários
+
+Binário versionado só se justifica se der para regenerá-lo. O script faz isso:
 
 ```bash
-cd mobile/android/app/src/main
-mkdir -p jni && cd jni
-git clone --recursive https://github.com/heiher/hev-socks5-tunnel
+ANDROID_NDK_HOME=/caminho/do/ndk bash mobile/android/build-tun2socks.sh
 ```
 
-No `mobile/android/app/build.gradle`:
+Ele clona a tag, compila para as duas ABIs, **verifica que a `.so` referencia
+`hev/htproxy/TProxyService`** e instala em `jniLibs/`.
 
-```gradle
-android {
-    defaultConfig {
-        externalNativeBuild {
-            ndkBuild {
-                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
-            }
-        }
-    }
+### O contrato JNI é rígido
 
-    externalNativeBuild {
-        ndkBuild {
-            path 'src/main/jni/hev-socks5-tunnel/Android.mk'
-        }
-    }
-}
+A biblioteca não usa a convenção `Java_pacote_Classe_metodo`. Ela chama
+`RegisterNatives` no `JNI_OnLoad` procurando uma classe de nome fixo — definida
+por `PKGNAME`/`CLSNAME` em `hev-jni.c`:
+
+```c
+#define PKGNAME hev/htproxy
+#define CLSNAME TProxyService
 ```
 
-Depois:
+Por isso existe [`hev/htproxy/TProxyService.kt`](../mobile/android/app/src/main/kotlin/hev/htproxy/TProxyService.kt),
+fora do nosso pacote. **Renomear essa classe ou movê-la de pacote faz o
+`System.loadLibrary` falhar inteiro**, não só o método.
 
-```bash
-flutter build apk --release
-```
+As assinaturas também são fixas, e todas devolvem `boolean` — não `void`:
 
-O `Android.mk` do projeto gera `libhev-socks5-tunnel.so` para cada ABI, e o
-`System.loadLibrary("hev-socks5-tunnel")` do `Tun2Socks.kt` encontra a lib
-automaticamente. Requer o **NDK** instalado pelo Android Studio.
+| Método | Assinatura JNI |
+|---|---|
+| `TProxyStartService` | `(Ljava/lang/String;I)Z` |
+| `TProxyStopService` | `()Z` |
+| `TProxyIsRunning` | `()Z` |
+| `TProxyGetStats` | `()[J` |
 
-### Opção B — .so pré-compilada
+Conferidas contra os símbolos da `.so` compilada.
 
-Se preferir não compilar, pegue as `.so` de um release do projeto e coloque em:
+### Compilando no Windows
 
-```
-mobile/android/app/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so
-mobile/android/app/src/main/jniLibs/armeabi-v7a/libhev-socks5-tunnel.so
-```
-
-O Gradle empacota `jniLibs/` sem configuração adicional.
+O `git` do Windows grava os symlinks do projeto como arquivos-texto contendo o
+caminho de destino — o compilador quebra na primeira linha com
+`expected identifier or '('`. São 31 headers nessa situação. O
+`build-tun2socks.sh` materializa cada um antes de compilar; em Linux e macOS
+esse passo não encontra nada e é ignorado.
 
 ### Se a lib não estiver presente
 
 O app **não finge que conectou**. `Tun2Socks.available` fica `false`, o
-`VpnChannel` responde `NO_TUN2SOCKS` e a tela mostra o erro. Isso é intencional:
-falhar visivelmente é melhor que um túnel fantasma.
+`VpnChannel` responde `NO_TUN2SOCKS` e a tela mostra o erro. Falhar
+visivelmente é melhor que um túnel fantasma.
 
 ---
 

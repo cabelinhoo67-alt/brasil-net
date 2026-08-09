@@ -50,7 +50,17 @@ class VpnChannel(
             "prepare" -> prepare(result)
             "start" -> start(call, result)
             "stop" -> stop(result)
-            "isRunning" -> result.success(TunnelVpnService.isRunning)
+            // Consulta os dois lados: o servico e o proprio motor nativo.
+            "isRunning" -> result.success(TunnelVpnService.isRunning && Tun2Socks.isRunning())
+            "stats" -> {
+                val s = Tun2Socks.stats()
+                result.success(
+                    mapOf(
+                        "rx" to (s.getOrNull(0) ?: 0L),
+                        "tx" to (s.getOrNull(1) ?: 0L),
+                    )
+                )
+            }
             else -> result.notImplemented()
         }
     }

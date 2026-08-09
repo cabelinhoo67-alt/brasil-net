@@ -72,4 +72,20 @@ class VpnBridge {
       return false;
     }
   }
+
+  /// Bytes recebidos e enviados pelo tunel desde a conexao.
+  ///
+  /// Vem do proprio motor nativo, entao reflete o trafego real do aparelho —
+  /// nao so o que o app moveu.
+  Future<({int rx, int tx})> stats() async {
+    try {
+      final data = await _method.invokeMapMethod<String, Object?>('stats');
+      return (
+        rx: (data?['rx'] as num?)?.toInt() ?? 0,
+        tx: (data?['tx'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return (rx: 0, tx: 0);
+    }
+  }
 }

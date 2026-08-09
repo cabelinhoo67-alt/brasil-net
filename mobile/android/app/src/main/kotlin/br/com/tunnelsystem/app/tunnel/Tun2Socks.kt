@@ -1,21 +1,19 @@
 package br.com.tunnelsystem.app.tunnel
 
 import android.util.Log
+import hev.htproxy.TProxyService
 import java.io.File
 
 /**
- * Ponte com o tun2socks — o unico pedaco nativo que este projeto NAO escreve.
+ * Ponte com o hev-socks5-tunnel (MIT) — a pilha TCP/IP em espaco de usuario
+ * que converte os pacotes IP crus da interface TUN em conexoes SOCKS5.
  *
- * Motivo: converter pacotes IP crus da interface TUN em conexoes SOCKS5 exige
- * uma pilha TCP/IP completa em espaco de usuario. Escrever uma do zero seria
- * reimplementar um projeto inteiro; o certo e usar um pronto e testado.
+ * A `.so` e compilada a partir do fonte pelo NDK; veja `docs/TUNNEL.md`. Os
+ * metodos nativos em si vivem em [TProxyService], cujo pacote e nome sao
+ * ditados pela biblioteca e nao podem mudar.
  *
- * Usamos o hev-socks5-tunnel (licenca MIT), que expoe exatamente tres metodos
- * nativos. Veja `docs/TUNNEL.md` para o passo a passo de como adicionar a
- * biblioteca ao projeto Android.
- *
- * Se a .so nao estiver presente, [available] fica falso e o servico falha com
- * uma mensagem clara — nunca fingindo que conectou.
+ * Se a `.so` nao estiver no APK, [available] fica falso e o servico falha com
+ * mensagem clara — nunca fingindo que conectou.
  */
 object Tun2Socks {
 
@@ -38,11 +36,6 @@ object Tun2Socks {
         }
     }
 
-    // Assinaturas nativas do hev-socks5-tunnel (jni/hev-jni.c).
-    private external fun TProxyStartService(configPath: String, fd: Int)
-    private external fun TProxyStopService()
-    private external fun TProxyGetStats(): LongArray
-
     /**
      * @param fd descritor da interface TUN entregue pela VpnService
      * @param socksPort porta do SOCKS5 local levantado pelo Dart
@@ -56,22 +49,35 @@ object Tun2Socks {
         config.writeText(buildConfig(socksPort, mtu))
 
         Log.i(TAG, "iniciando tun2socks fd=$fd socks=127.0.0.1:$socksPort")
-        TProxyStartService(config.absolutePath, fd)
+
+        // Devolve false quando ja ha uma sessao rodando ou o config e invalido.
+        val ok = TProxyService.TProxyStartService(config.absolutePath, fd)
+        check(ok) { "tun2socks recusou iniciar; confira ${config.absolutePath}" }
     }
 
     fun stop() {
         if (!available) return
         try {
-            TProxyStopService()
+            TProxyService.TProxyStopService()
         } catch (e: Throwable) {
             Log.w(TAG, "erro ao parar tun2socks: ${e.message}")
         }
     }
 
+    fun isRunning(): Boolean = if (available) {
+        try {
+            TProxyService.TProxyIsRunning()
+        } catch (e: Throwable) {
+            false
+        }
+    } else {
+        false
+    }
+
     /** [bytesRecebidos, bytesEnviados] — usado para exibir trafego na tela. */
     fun stats(): LongArray = if (available) {
         try {
-            TProxyGetStats()
+            TProxyService.TProxyGetStats()
         } catch (e: Throwable) {
             longArrayOf(0, 0)
         }
@@ -79,9 +85,15 @@ object Tun2Socks {
         longArrayOf(0, 0)
     }
 
+    /**
+     * O `tunnel.name` e omitido de proposito: com a interface entregue por fd,
+     * a lib usa o descritor e nao tenta criar uma TUN propria. Os enderecos
+     * casam com os da VpnService.Builder.
+     */
     private fun buildConfig(socksPort: Int, mtu: Int): String = """
         tunnel:
           mtu: $mtu
+          ipv4: 10.111.222.2
         socks5:
           address: 127.0.0.1
           port: $socksPort
