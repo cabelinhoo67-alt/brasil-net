@@ -32,6 +32,7 @@ function navigationFor(role) {
   }
 
   if (can.managePlans(role)) items.push({ to: '/planos', label: 'Planos', icon: '▦' });
+  if (can.managePlans(role)) items.push({ to: '/versao-app', label: 'Versao do app', icon: '▲' });
   if (can.viewOrders(role)) items.push({ to: '/vendas', label: 'Vendas', icon: '▧' });
 
   items.push({ divider: 'Conta' }, { to: '/conta', label: 'Minha conta', icon: '◉' });

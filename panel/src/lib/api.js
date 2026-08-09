@@ -73,6 +73,7 @@ async function request(method, path, { body, query } = {}) {
 const http = {
   get: (path, query) => request('GET', path, { query }),
   post: (path, body) => request('POST', path, { body }),
+  put: (path, body) => request('PUT', path, { body }),
   patch: (path, body) => request('PATCH', path, { body }),
   del: (path) => request('DELETE', path),
 };
@@ -141,5 +142,10 @@ export const api = {
 
   orders: {
     list: (query) => http.get('/api/payments/orders', query),
+  },
+
+  appVersion: {
+    get: () => http.get('/api/settings/app-version'),
+    set: (body) => http.put('/api/settings/app-version', body),
   },
 };

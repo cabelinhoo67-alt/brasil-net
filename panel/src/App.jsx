@@ -12,6 +12,7 @@ import Operators from './pages/Operators';
 import Payloads from './pages/Payloads';
 import Servers from './pages/Servers';
 import Plans from './pages/Plans';
+import AppVersion from './pages/AppVersion';
 import Orders from './pages/Orders';
 import Account from './pages/Account';
 
@@ -106,6 +107,14 @@ export default function App() {
           element={
             <RequireRole allowed={can.viewOrders}>
               <Orders />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="versao-app"
+          element={
+            <RequireRole allowed={can.managePlans}>
+              <AppVersion />
             </RequireRole>
           }
         />
