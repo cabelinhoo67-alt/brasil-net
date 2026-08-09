@@ -1,0 +1,28 @@
+# PostgreSQL para producao.
+#
+# Diferenca central do docker-compose.yml de desenvolvimento: a porta 5432 e
+# publicada apenas em 127.0.0.1. Numa VPS com IP publico, "5432:5432" exporia
+# o banco para a internet inteira — e bancos expostos sao varridos por bots em
+# questao de horas. O Adminer tambem fica de fora: nao ha motivo para uma UI de
+# banco acessivel publicamente.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tunnel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tunnel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+      POSTGRES_DB: tunneldb
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tunnel -d tunneldb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
