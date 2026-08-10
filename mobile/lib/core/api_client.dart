@@ -26,9 +26,12 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  ApiClient({http.Client? client}) : _client = client ?? http.Client();
+  ApiClient({http.Client? client}) : _client = client ?? _buildClient();
 
   final http.Client _client;
+
+  /// Redirect NAO e seguido automaticamente — ver [_NoRedirectClient].
+  static http.Client _buildClient() => _NoRedirectClient();
   String? _token;
 
   void setToken(String? token) => _token = token;
@@ -114,7 +117,30 @@ class ApiClient {
     if (kDebugMode) debugPrintStack(stackTrace: stack, maxFrames: 6);
   }
 
+  void _logRedirect(int status, String? location, Uri? requested) {
+    debugPrint('[api] redirect inesperado: $requested -> $status Location: $location');
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
+    // 3xx antes de tentar decodificar: quando a rede movel intercepta trafego
+    // HTTP em texto claro (proxy transparente de operadora sem credito), o
+    // servidor que responde nao e o nosso backend — e a propria operadora,
+    // devolvendo um redirect para a pagina de recarga. Tentar fazer
+    // jsonDecode nesse corpo (geralmente HTML ou vazio) so produzia
+    // "Resposta invalida do servidor (302)", que nao diz ao usuario o que
+    // fazer. Detectado aqui, a mensagem aponta a causa real.
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      final location = response.headers['location'];
+      _logRedirect(response.statusCode, location, response.request?.url);
+      throw ApiException(
+        'Sua rede redirecionou a conexao (HTTP ${response.statusCode}) em vez '
+        'de responder. Isso costuma acontecer quando o chip esta sem credito '
+        'ou sem pacote de dados — confira com a operadora ou troque para Wi-Fi.',
+        code: 'NETWORK_REDIRECT',
+        statusCode: response.statusCode,
+      );
+    }
+
     Map<String, dynamic> data;
     try {
       data = response.body.isEmpty
@@ -151,4 +177,60 @@ class ApiClient {
   }
 
   void dispose() => _client.close();
+}
+
+/// Cliente HTTP que nunca segue redirects sozinho.
+///
+/// `package:http`'s `IOClient`/`Client()` padrao delega ao `dart:io
+/// HttpClient`, que por padrao SEGUE 301/302/303/307/308 automaticamente —
+/// inclusive rebaixando POST para GET no caminho (comportamento historico do
+/// HTTP/1.0 que a maioria dos clientes ainda replica). Isso troca o corpo da
+/// requisicao original por um vazio e faz a rota final devolver outra coisa
+/// (404 da rota GET inexistente, HTML de erro), mascarando a causa real atras
+/// de "Resposta invalida do servidor" generico.
+///
+/// `HttpClientRequest.followRedirects` so pode ser setado por requisicao — o
+/// `IOClient` de alto nivel nao expoe esse hook, entao a request e aberta na
+/// mao aqui. Com isso, todo 3xx chega intacto ao `ApiClient._decode()`, que
+/// sabe explicar a causa real: tipicamente a operadora interceptando o chip
+/// sem credito, nao um bug no backend.
+class _NoRedirectClient extends http.BaseClient {
+  final HttpClient _inner = HttpClient()
+    ..connectionTimeout = AppConfig.requestTimeout
+    ..autoUncompress = true;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final ioRequest = await _inner.openUrl(request.method, request.url);
+    ioRequest.followRedirects = false;
+
+    request.headers.forEach(ioRequest.headers.set);
+    ioRequest.contentLength =
+        request.contentLength ?? (request is http.Request ? request.bodyBytes.length : -1);
+
+    if (request is http.Request && request.bodyBytes.isNotEmpty) {
+      ioRequest.add(request.bodyBytes);
+    } else {
+      await request.finalize().forEach(ioRequest.add);
+    }
+
+    final ioResponse = await ioRequest.close();
+
+    // HttpHeaders (dart:io) so oferece forEach — sem .keys nem .entries.
+    final headers = <String, String>{};
+    ioResponse.headers.forEach((name, values) => headers[name] = values.join(', '));
+
+    return http.StreamedResponse(
+      ioResponse,
+      ioResponse.statusCode,
+      contentLength: ioResponse.contentLength < 0 ? null : ioResponse.contentLength,
+      request: request,
+      headers: headers,
+      reasonPhrase: ioResponse.reasonPhrase,
+      isRedirect: ioResponse.isRedirect,
+    );
+  }
+
+  @override
+  void close() => _inner.close(force: true);
 }
