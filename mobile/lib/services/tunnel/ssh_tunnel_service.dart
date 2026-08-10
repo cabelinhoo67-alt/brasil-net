@@ -173,15 +173,35 @@ class SshTunnelService implements TunnelService {
 
     TunnelException? lastError;
 
+    // Teto agregador por tentativa: cobre qualquer etapa interna (transporte,
+    // injecao de payload, TLS, auth SSH) que nao tenha timeout proprio ou cujo
+    // timeout individual nao dispare por bloqueio de I/O nao-assincrono real
+    // (ex.: write() em loop apertado). Sem isto, uma unica etapa travada
+    // trava a cadeia inteira, mesmo com os outros timeouts no lugar.
+    const strategyDeadline = Duration(seconds: 20);
+
     for (var i = 0; i < chain.length; i++) {
       final strategy = chain[i];
       _log('tentativa ${i + 1}/${chain.length}: ${strategy.label}');
 
       try {
-        return await _attempt(strategy, username, password);
+        return await _attempt(strategy, username, password).timeout(
+          strategyDeadline,
+          onTimeout: () {
+            _log('tentativa "${strategy.label}" travou alem de ${strategyDeadline.inSeconds}s');
+            // A Future original do _attempt continua rodando em segundo
+            // plano (Dart nao cancela); derruba o que ela possa ter deixado
+            // pendurado (client/socks) antes de seguir para a proxima.
+            _forceCloseSession();
+            throw TunnelException(
+              'Sem resposta do servidor em ${strategyDeadline.inSeconds}s '
+              '(rede pode estar bloqueando a conexao).',
+            );
+          },
+        );
       } on _PortalDetected catch (error) {
         _log('portal cativo detectado (${error.status}) — trocando de estrategia');
-        lastError = TunnelException(
+        lastError = const TunnelException(
           'A operadora interceptou a conexao (possivel falta de credito).',
         );
         continue;
@@ -194,6 +214,21 @@ class SshTunnelService implements TunnelService {
 
     throw lastError ??
         const TunnelException('Nenhuma estrategia de conexao funcionou.');
+  }
+
+  /// Fecha client/socks que uma tentativa estourada em timeout possa ter
+  /// deixado presos, sem derrubar a VPN nativa (isso e decisao de quem chama).
+  void _forceCloseSession() {
+    _keepAlive?.cancel();
+    _keepAlive = null;
+    try {
+      _socks?.stop();
+    } catch (_) {}
+    _socks = null;
+    try {
+      _client?.close();
+    } catch (_) {}
+    _client = null;
   }
 
   /// Uma tentativa completa: transporte -> deteccao de portal -> SSH -> SOCKS.
@@ -379,14 +414,45 @@ class SshTunnelService implements TunnelService {
 
     _log('injetando payload (${chunks.length} pacote(s))');
 
+    // Deadline agregado para TODO o envio, nao so para a leitura da resposta.
+    // raw.write() e nao-bloqueante: se a operadora fizer zero-window ou
+    // black-hole no meio do envio, ele passa a devolver 0 bytes escritos
+    // indefinidamente e o loop giraria para sempre — este e o bug que
+    // travava o app em "carregando infinito" na Claro.
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+
     for (final chunk in chunks) {
       var offset = 0;
+      var stalledWrites = 0;
+
       while (offset < chunk.data.length) {
-        offset += raw.write(chunk.data, offset, chunk.data.length - offset);
+        if (DateTime.now().isAfter(deadline)) {
+          throw const TunnelException(
+            'A operadora parou de aceitar dados durante o envio do payload.',
+          );
+        }
+
+        final written = raw.write(chunk.data, offset, chunk.data.length - offset);
+        if (written == 0) {
+          // Buffer de saida cheio / janela TCP travada. Tolera algumas
+          // tentativas com backoff curto; se persistir ate o deadline acima,
+          // o proximo giro do loop estoura a excecao.
+          stalledWrites++;
+          if (stalledWrites > 400) {
+            throw const TunnelException(
+              'A operadora parou de aceitar dados durante o envio do payload.',
+            );
+          }
+        } else {
+          stalledWrites = 0;
+        }
+
+        offset += written;
         if (offset < chunk.data.length) {
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
       }
+
       if (chunk.delayAfter > Duration.zero) {
         await Future<void>.delayed(chunk.delayAfter);
       }
