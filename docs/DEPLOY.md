@@ -195,7 +195,61 @@ Saída em `build/app/outputs/flutter-apk/app-release.apk`.
 Para publicar na Play Store, gere um keystore e configure `android/key.properties` —
 sem assinatura própria o APK só serve para distribuição direta.
 
-## 8. Backup
+## 8. Publicação no hosting (distribuição direta + OTA + Remote Control Plane)
+
+O app distribui APKs por link direto (`/dl/tunnel-app.apk`) servido pelo Nginx a partir
+de `/opt/tunnel-apks/`. O motor OTA consulta `GET /api/app/version?build=NN` e oferece a
+atualização quando o build publicado é maior que o instalado.
+
+### 8.1 Publicar um novo APK
+
+```bash
+# copia o APK compilado para o servidor e publica
+scp mobile/releases/tunnel-app-1.2.2+3010-universal.apk root@<IP>:/tmp/
+ssh root@<IP> "cd /opt/tunnel-apks && cp -p tunnel-app.apk tunnel-app.apk.bak-buildXXXX && mv -f /tmp/tunnel-app-1.2.2+3010-universal.apk tunnel-app.apk"
+```
+
+### 8.2 Publicar o Remote Control Plane (config remota)
+
+O JSON de configuração (payloads, proxies e SNIs) é servido em
+`/config/network_config.json` a partir de `/opt/tunnel-apks/config/`:
+
+```bash
+scp mobile/assets/config/network_config.json root@<IP>:/tmp/
+ssh root@<IP> "mkdir -p /opt/tunnel-apks/config && mv -f /tmp/network_config.json /opt/tunnel-apks/config/network_config.json"
+```
+
+O `location /config/` no server block do Nginx:
+
+```nginx
+location /config/ {
+    alias /opt/tunnel-apks/config/;
+    default_type application/json;
+    add_header Cache-Control "no-cache, max-age=0";
+}
+```
+
+Validar e recarregar: `sudo nginx -t && sudo systemctl reload nginx`.
+
+### 8.3 Atualizar a versão OTA
+
+Pelo painel (Versão do aplicativo) ou direto no banco (Postgres via Docker):
+
+```bash
+docker exec tunnel-postgres psql -U tunnel -d tunneldb -c "
+  UPDATE settings SET value='3010' WHERE key='APP_LATEST_BUILD';
+  UPDATE settings SET value='1.2.2' WHERE key='APP_LATEST_VERSION';
+  UPDATE settings SET value='https://brasilnetpro.click/dl/tunnel-app.apk' WHERE key='APP_APK_URL';
+  UPDATE settings SET value='154969266' WHERE key='APP_APK_SIZE';
+  UPDATE settings SET value='descricao das novidades' WHERE key='APP_CHANGELOG';
+"
+```
+
+**Importante:** o build precisa ser **maior** que o instalado (inteiro monotônico). Se o
+`versionCode` no pubspec não for bumpado, o OTA não oferece a atualização e o Android
+recusa a instalação.
+
+## 9. Backup
 
 ```bash
 docker exec tunnel-postgres pg_dump -U tunnel tunneldb > /opt/backups/tunneldb-$(date +%F).sql

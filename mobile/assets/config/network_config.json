@@ -1,0 +1,55 @@
+{
+  "version": 20260801,
+  "carriers": [
+    {
+      "name": "TIM",
+      "carrier_code": "72402",
+      "sni_hosts": [
+        "meutim.tim.com.br",
+        "m.ofertas.tim.com.br",
+        "timnavegador.tim.com.br",
+        "www.tim.com.br"
+      ],
+      "payload_template": "CONNECT [host_port] HTTP/1.1[crlf]Host: [host][crlf]Connection: Keep-Alive[crlf][crlf]",
+      "proxy_nodes": [
+        "179.191.165.65:8080",
+        "108.139.113.110:443",
+        "187.77.37.249:443"
+      ]
+    },
+    {
+      "name": "CLARO",
+      "carrier_code": "72405",
+      "sni_hosts": [
+        "www.claro.com.br",
+        "minha.claro.com.br",
+        "appclaro.claro.com.br"
+      ],
+      "payload_template": "GET http://[host]/[seuid] HTTP/1.1[crlf]Host: [host][crlf]Connection: Keep-Alive[crlf][crlf]",
+      "proxy_nodes": [
+        "179.191.165.65:8080",
+        "108.139.113.110:443",
+        "187.77.37.249:443"
+      ]
+    },
+    {
+      "name": "VIVO",
+      "carrier_code": "72406",
+      "sni_hosts": [
+        "www.vivo.com.br",
+        "meuvivo.vivo.com.br",
+        "lojaonline.vivo.com.br"
+      ],
+      "payload_template": "CONNECT [host_port] HTTP/1.1[crlf]Host: [host][crlf]Connection: Keep-Alive[crlf][crlf]",
+      "proxy_nodes": [
+        "179.191.165.65:8080",
+        "108.139.113.110:443",
+        "187.77.37.249:443"
+      ]
+    }
+  ],
+  "meta": {
+    "source": "asset-fallback",
+    "description": "Configuracao offline empacotada no APK para o primeiro boot sem rede."
+  }
+}

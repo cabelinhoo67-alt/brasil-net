@@ -19,6 +19,20 @@ class AppConfig {
     defaultValue: 'https://brasilnetpro.click',
   );
 
+  /// URL do JSON remoto de configuracao (Remote Control Plane).
+  ///
+  /// Pode apontar para um CDN, Cloudflare Worker, GitHub Raw/Gist ou o proprio
+  /// backend servindo o arquivo estatico. O default e o mesmo dominio da API
+  /// servindo `config/network_config.json` — para trocar em dev sem recompilar,
+  /// passe `--dart-define=CONFIG_URL=https://...`.
+  static const String configUrl = String.fromEnvironment(
+    'CONFIG_URL',
+    defaultValue: 'https://brasilnetpro.click/config/network_config.json',
+  );
+
+  /// Caminho (em assets) do JSON fallback offline para o primeiro boot.
+  static const String assetConfigPath = 'assets/config/network_config.json';
+
   static const String appName = 'Tunnel App';
 
   /// Intervalo do heartbeat enviado ao backend (controle de conexoes).

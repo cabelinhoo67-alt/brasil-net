@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
+import '../features/home/presentation/widgets/update_config_button.dart';
 import '../models/models.dart';
 import '../services/app_state.dart';
 import '../widgets/connection_card.dart';
@@ -49,6 +50,8 @@ class HomeScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const BypassScreen()),
             ),
           ),
+          // Remote Control Plane: botao manual de atualizacao de payloads.
+          const UpdateConfigButton(),
           IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout_rounded),

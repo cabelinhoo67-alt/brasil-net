@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_config.dart';
+import 'core/network/connection_manager.dart';
 import 'core/theme.dart';
+import 'features/config/presentation/controllers/config_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
@@ -25,6 +27,14 @@ class TunnelApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()..bootstrap()),
         ChangeNotifierProvider(create: (_) => OtaService()),
+        // Remote Control Plane: sincroniza payloads/proxies/SNIs com o
+        // servidor remoto. O onApplied injeta a config nova no manager ativo
+        // (hot reload sem reiniciar o app).
+        ChangeNotifierProvider(
+          create: (_) => ConfigController(
+            onApplied: (config) => TunnelConnectionManager.instance.applyConfig(config),
+          )..loadActive(),
+        ),
       ],
       child: MaterialApp(
         title: AppConfig.appName,
@@ -53,9 +63,11 @@ class _RootState extends State<_Root> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Checa OTA na abertura.
+    // Checa OTA e sincroniza a configuracao remota na abertura (silencioso).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<OtaService>().check();
+      if (!mounted) return;
+      context.read<OtaService>().check();
+      context.read<ConfigController>().check(silent: true);
     });
   }
 

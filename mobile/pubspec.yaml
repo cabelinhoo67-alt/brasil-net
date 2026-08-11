@@ -6,11 +6,12 @@ publish_to: "none"
 # usado (arm64-v8a = +2000). NAO prefixar aqui, senao duplica: N=3 vira o
 # versionCode final 2003 sozinho; se colocar "+2003" aqui, o build sai 4003.
 #
-# 3009: APK Universal com a refatoracao de rede/injecao (rotacao agressiva,
-# novos SNIs por operadora, payloads com upgrade/keep-alive, headers de
-# navegador no WebSocket). Precisa ser > 3008 (publicado) para o OTA detectar
-# novidade em qualquer aparelho e o Android aceitar a instalacao.
-version: 1.2.2+3009
+# 3010: Remote Control Plane - sincronizacao remota de configuracoes
+# (payloads/proxies/SNIs via CDN sem recompilar), botao "Buscar Atualizacoes",
+# sync silencioso no boot, hot reload da config no TunnelConnectionManager e
+# fallback offline em assets. Precisa ser > 3009 (publicado) para o OTA
+# detectar novidade em qualquer aparelho e o Android aceitar a instalacao.
+version: 1.2.2+3010
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -62,6 +63,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # Sem declaracao de assets: o projeto nao tem nenhum, e apontar para uma
-  # pasta inexistente faz o `flutter pub get` falhar. Ao adicionar imagens ou
-  # fontes, crie a pasta e reponha a chave `assets:` aqui.
+
+  # Configuracao de rede (payloads/SNIs/proxies) empacotada no APK como
+  # fallback offline para o primeiro boot, quando nao ha cache nem rede.
+  assets:
+    - assets/config/network_config.json
