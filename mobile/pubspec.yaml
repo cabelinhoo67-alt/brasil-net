@@ -1,10 +1,19 @@
 name: tunnel_app
 description: Cliente de tunelamento com deteccao automatica de operadora
 publish_to: "none"
-version: 1.0.1+2
+# O build number (depois do "+") e so o contador puro (N) — o Flutter Gradle
+# Plugin ja soma automaticamente o offset por ABI quando --split-per-abi e
+# usado (arm64-v8a = +2000). NAO prefixar aqui, senao duplica: N=3 vira o
+# versionCode final 2003 sozinho; se colocar "+2003" aqui, o build sai 4003.
+#
+# 3009: APK Universal com a refatoracao de rede/injecao (rotacao agressiva,
+# novos SNIs por operadora, payloads com upgrade/keep-alive, headers de
+# navegador no WebSocket). Precisa ser > 3008 (publicado) para o OTA detectar
+# novidade em qualquer aparelho e o Android aceitar a instalacao.
+version: 1.2.2+3009
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
+  sdk: ">=3.5.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -36,6 +45,15 @@ dependencies:
 
   # Download do APK no OTA, com progresso em tempo real.
   dio: ^5.7.0
+
+  # Roteia a chamada de API pelo SOCKS5 local do tunel apos conectar — o
+  # proprio app fica fora da VPN (bypass, evita loop de roteamento), entao
+  # sem isso a API do app nunca se beneficia do tunel ja ativo.
+  socks5_proxy: ^2.1.1
+
+  # Transporte SSH-over-WebSocket (fallback contra operadoras que so liberam
+  # a porta 443 para trafego HTTPS/WS reconhecivel).
+  web_socket_channel: ^3.0.1
 
 dev_dependencies:
   flutter_test:

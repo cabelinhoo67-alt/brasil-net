@@ -123,7 +123,7 @@ class VpnChannel(
             putStringArrayListExtra(TunnelVpnService.EXTRA_BYPASS_PACKAGES, ArrayList(bypass))
         }
 
-        startService(activity, intent)
+        startForegroundServiceCompat(activity, intent)
         result.success(null)
     }
 
@@ -131,7 +131,17 @@ class VpnChannel(
         val intent = Intent(activity, TunnelVpnService::class.java).apply {
             action = TunnelVpnService.ACTION_STOP
         }
-        startService(activity, intent)
+        // startService() comum, NUNCA startForegroundService() aqui: STOP e
+        // chamado de forma incondicional no inicio de toda tentativa de
+        // conexao (ver SshTunnelService._teardownSession), inclusive na
+        // primeira do processo, quando o servico nunca rodou ainda. Se isso
+        // disparasse startForegroundService(), o Android criaria o servico e
+        // exigiria startForeground() em ~5s — mas o onStartCommand para
+        // ACTION_STOP so chama stopTunnel() e retorna, sem nunca chamar
+        // startForeground(). O sistema entao mata o processo com
+        // "Context.startForegroundService() did not then call
+        // Service.startForeground()" — o crash catastrofico que isto corrige.
+        activity.startService(intent)
         result.success(null)
     }
 
@@ -154,11 +164,17 @@ class VpnChannel(
             action = TunnelVpnService.ACTION_REBIND
             putExtra(TunnelVpnService.EXTRA_SOCKS_PORT, socksPort)
         }
-        startService(activity, intent)
+        // Mesmo motivo do stop(): REBIND so faz sentido num servico ja
+        // rodando (a checagem isRunning acima ja cobre a maior parte dos
+        // casos, mas startService() comum tambem remove a exigencia de
+        // startForeground() caso a checagem perca alguma corrida).
+        activity.startService(intent)
         result.success(null)
     }
 
-    private fun startService(context: Context, intent: Intent) {
+    /** So ACTION_START efetivamente sobe o servico em foreground — e a unica
+     * chamada que precisa (e pode, com seguranca) usar startForegroundService(). */
+    private fun startForegroundServiceCompat(context: Context, intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {

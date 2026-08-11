@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:socks5_proxy/socks_client.dart';
 
 import 'app_config.dart';
 
@@ -21,21 +22,53 @@ class ApiException implements Exception {
   bool get shouldDisconnect =>
       code == 'EXPIRED' || code == 'USER_DISABLED' || code == 'SESSION_CLOSED';
 
+  /// Falha de TRANSPORTE (rede ruim, redirect, timeout) — nunca de negocio
+  /// (credenciais, bloqueio, expiracao). E o que decide se vale tentar o
+  /// fallback de login offline: cair para o cache por causa de senha errada
+  /// seria esconder o erro real do usuario.
+  static const _networkCodes = {
+    'TIMEOUT',
+    'UNREACHABLE',
+    'TLS',
+    'CONNECTION_LOST',
+    'BAD_RESPONSE',
+    'NETWORK_REDIRECT',
+  };
+  bool get isNetworkFailure => _networkCodes.contains(code);
+
   @override
   String toString() => message;
 }
 
 class ApiClient {
-  ApiClient({http.Client? client}) : _client = client ?? _buildClient();
+  ApiClient({http.Client? client}) : _client = client ?? _NoRedirectClient();
 
-  final http.Client _client;
-
-  /// Redirect NAO e seguido automaticamente — ver [_NoRedirectClient].
-  static http.Client _buildClient() => _NoRedirectClient();
+  /// Nao-final: `useSocksProxy` troca o client para rotear (ou nao) pelo
+  /// tunel — ver o comentario la para o motivo.
+  http.Client _client;
   String? _token;
+  int? _socksPort;
 
   void setToken(String? token) => _token = token;
   String? get token => _token;
+
+  /// Roteia as chamadas seguintes pelo SOCKS5 local do tunel, ou volta para
+  /// a rede aberta se [port] for null.
+  ///
+  /// O app fica de fora da VPN nativa por design (bypass — evita o loop de
+  /// roteamento da propria conexao SSH), entao mesmo com o tunel ativo as
+  /// chamadas de API NAO passam por ele automaticamente. Isso e o que fecha
+  /// essa lacuna: depois que o tunel autentica, a confirmacao com o backend
+  /// (refreshConfig) pode ir por dentro dele — o mesmo caminho que ja provou
+  /// furar o bloqueio da operadora.
+  void useSocksProxy(int? port) {
+    if (_socksPort == port) return;
+    _socksPort = port;
+
+    final old = _client;
+    _client = _NoRedirectClient(socksPort: port);
+    old.close();
+  }
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -195,6 +228,19 @@ class ApiClient {
 /// sabe explicar a causa real: tipicamente a operadora interceptando o chip
 /// sem credito, nao um bug no backend.
 class _NoRedirectClient extends http.BaseClient {
+  _NoRedirectClient({int? socksPort}) {
+    if (socksPort != null) {
+      // SocksTCPClient substitui o factory de conexao do HttpClient: toda
+      // conexao TCP passa a ser negociada via SOCKS5 em 127.0.0.1:socksPort
+      // (o servidor que o SshTunnelService ja mantem de pe) antes de tocar
+      // a rede de verdade. TLS por cima (chamadas https://) continua
+      // funcionando normalmente, encapsulado dentro do proxy.
+      SocksTCPClient.assignToHttpClient(_inner, [
+        ProxySettings(InternetAddress.loopbackIPv4, socksPort),
+      ]);
+    }
+  }
+
   final HttpClient _inner = HttpClient()
     ..connectionTimeout = AppConfig.requestTimeout
     ..autoUncompress = true;

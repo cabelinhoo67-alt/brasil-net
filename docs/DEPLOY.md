@@ -101,6 +101,62 @@ sudo ln -s /etc/nginx/sites-available/tunnel /etc/nginx/sites-enabled/ && sudo n
 sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx -d api.seudominio.com.br
 ```
 
+### Fallback WebSocket do app (wss://<dominio>/tun)
+
+O app móvel tem uma última estratégia de conexão: SSH encapsulado em WebSocket
+(`wss://<dominio>/tun`). Ela só funciona se a ponte estiver de pé e o Nginx
+repassar o upgrade para ela.
+
+**Importante:** o app usa o MESMO domínio da API para o WebSocket
+(`wss://brasilnetpro.click/tun`), então o `location /tun` vai no server block
+do domínio principal — não num subdomínio separado.
+
+Na VPS:
+
+```bash
+sudo bash /tmp/tunnel/vps-agent/install.sh
+sudo systemctl start ws-bridge
+journalctl -u tunnel-ws-bridge -f   # deve aparecer "escutando em 127.0.0.1:7301"
+```
+
+No server block do domínio (o mesmo que serve a API):
+
+```nginx
+location /tun {
+    proxy_pass http://127.0.0.1:7301;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+}
+```
+
+Valide e recarregue:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Teste o upgrade sem o app (na VPS, ou de qualquer máquina):
+
+```bash
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+     -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+     https://brasilnetpro.click/tun
+```
+
+A resposta esperada é `101 Switching Protocols`. Se vier `404`/`502`, o bridge
+ou o `location` não estão configurados — e é exatamente por isso que o app
+pendurava os 20s da última estratégia.
+
+**Segurança:** o bridge escuta só em `127.0.0.1:7301` e valida o path `/tun`
+antes do upgrade; o firewall não precisa liberar nada além do `Nginx Full`
+já configurado abaixo.
+
 ## 5. Webhook do Mercado Pago
 
 No painel do Mercado Pago, tópico *Pagamentos*:

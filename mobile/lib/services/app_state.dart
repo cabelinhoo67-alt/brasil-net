@@ -9,10 +9,54 @@ import '../core/app_config.dart';
 import '../core/storage.dart';
 import '../models/models.dart';
 import 'bypass_store.dart';
+import 'config_cache.dart';
 import 'overlay_service.dart';
 import 'sim_service.dart';
 import 'tunnel/tunnel_factory.dart';
 import 'tunnel/tunnel_service.dart';
+
+/// Coordenadas fixas da VPS — nao sao segredo (o mesmo IP/portas ja aparece
+/// em qualquer captura de trafego do tunel), so infraestrutura estavel. Usadas
+/// para o "login de resgate": quando a API nem responde (rede aberta
+/// bloqueada) e nao ha cache local, ainda assim conhecemos onde o servidor
+/// esta — so nao sabemos o payload especifico da operadora do usuario.
+const _bootstrapServer = ServerInfo(
+  id: 'bootstrap',
+  name: 'Brasil-Net BR-01',
+  host: '187.77.37.249',
+  sshPort: 22,
+  sslPort: 443,
+  proxyPort: 80,
+);
+
+/// Payload generico para a tentativa de resgate: sem template proprio, a
+/// cadeia de estrategias (StrategyChain) ja cobre payload CONNECT, TLS/SNI e
+/// WebSocket por conta propria como fallback, entao o modo de partida aqui e
+/// so o ponto de largada da cadeia, nao a unica tentativa.
+const _bootstrapPayload = Payload(
+  id: 'bootstrap',
+  name: 'Reconexao automatica',
+  mode: 'SSH_DIRECT',
+  content: '',
+  server: _bootstrapServer,
+);
+
+/// Chuta o codigo da operadora a partir do nome bruto lido do chip (via
+/// TelephonyManager, sem precisar da API) — usado so no tunel de resgate,
+/// quando `_operator.code` ainda nao foi confirmado pelo backend (a API e
+/// justamente quem nao respondeu, entao nunca teria como confirmar isso a
+/// tempo). Sem isso, a estrategia TLS/SNI cai no IP puro do servidor como
+/// SNI, o que nao e um bug host de verdade e nunca teve chance de funcionar.
+String? _guessOperatorCode(SimInfo sim) {
+  final name = sim.operatorName.toUpperCase();
+  if (name.contains('CLARO')) return 'CLARO';
+  if (name.contains('VIVO')) return 'VIVO';
+  if (name.contains('TIM')) return 'TIM';
+  if (name.contains('OI')) return 'OI';
+  if (name.contains('ALGAR') || name.contains('CTBC')) return 'ALGAR';
+  if (name.contains('VERO')) return 'VERO';
+  return null;
+}
 
 /// Estado global do app: autenticacao, operadora detectada, payloads,
 /// status do tunel, ping e heartbeat de sessao.
@@ -144,6 +188,12 @@ class AppState extends ChangeNotifier {
 
   // --------------------------- autenticacao --------------------------------
 
+  /// Login OFFLINE: aceito a partir do cache local, sem confirmacao da API.
+  /// A validacao real das credenciais so acontece quando o usuario tenta
+  /// conectar — e o handshake SSH quem confirma usuario/senha nesse caso.
+  bool _offlineLogin = false;
+  bool get isOfflineLogin => _offlineLogin;
+
   Future<bool> login(
     String username,
     String password, {
@@ -157,38 +207,39 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final data = await _api.post('/api/app/login', {
-        'username': username.trim(),
-        'password': password,
-        'deviceId': _deviceId,
-        'deviceName': _deviceName,
-        'appVersion': _appVersion,
-        'sim': {
-          'operatorName': _sim.operatorName,
-          'mccMnc': _sim.mccMnc,
-        },
-      });
-
-      _api.setToken(data['token'] as String);
-      await Storage.saveToken(data['token'] as String);
-
-      _user = AppUser.fromJson(data['user'] as Map<String, dynamic>);
-      _password = password; // o tunel SSH autentica com as mesmas credenciais
-      _operator = OperatorInfo.fromJson(data['operator'] as Map<String, dynamic>);
-      _applyPayloads(data['payloads'] as List<dynamic>);
-
-      if (remember) {
-        await Storage.saveCredentials(username.trim(), password);
-      }
-
-      _startTimers();
+      final data = await _api.post('/api/app/login', _loginBody(username, password));
+      await _applyLoginSuccess(
+        data,
+        username: username.trim(),
+        password: password,
+        remember: remember,
+      );
       _error = null;
       return true;
     } on ApiException catch (e) {
-      // A ApiException ja vem com a causa traduzida (TIMEOUT, UNREACHABLE...).
       debugPrint('[login] falhou: ${e.code} — ${e.message}');
+
       _error = e.message;
       _lastLog = 'login: ${e.code ?? 'ERRO'}';
+
+      // So cai para o cache/tunel em falha de REDE — senha errada, bloqueio
+      // ou expiracao continuam sendo mostrados normalmente, sem mascarar
+      // atras de um "modo offline" que nao resolveria o problema real.
+      if (e.isNetworkFailure) {
+        final offline = await _tryOfflineLogin(username.trim(), password);
+        if (offline) return true;
+
+        // Sem cache (aparelho novo, ou 1o login neste device): a unica forma
+        // de confirmar a senha e o proprio handshake SSH contra a VPS. Se a
+        // operadora esta bloqueando so a chamada de API pela rede aberta —
+        // o cenario classico do chip sem credito — o tunel ainda assim
+        // costuma passar (ele tem 4 transportes diferentes tentando furar
+        // exatamente esse bloqueio). Substitui _error por uma mensagem mais
+        // precisa se o proprio SSH confirmar o motivo real da falha.
+        final bootstrap = await _tryBootstrapTunnelLogin(username.trim(), password);
+        if (bootstrap) return true;
+      }
+
       return false;
     } catch (e, stack) {
       // Nada deve cair aqui. Se cair, o console mostra o que foi — engolir a
@@ -201,6 +252,146 @@ class AppState extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  /// Usa a config salva no ultimo login bem-sucedido para liberar a tela
+  /// principal sem esperar a API — o usuario entao toca em "conectar" e o
+  /// proprio handshake SSH confirma se a senha ainda e valida.
+  ///
+  /// So funciona a partir do 2o login em diante: sem cache (aparelho novo, ou
+  /// usuario que nunca logou aqui com rede boa), nao ha host/porta/payload
+  /// para tentar — nesse caso a API precisa mesmo responder.
+  Future<bool> _tryOfflineLogin(String username, String password) async {
+    final cached = await ConfigCache.read(username);
+    if (cached == null) {
+      debugPrint('[login] sem cache para "$username" — nao ha modo offline possivel');
+      return false;
+    }
+
+    debugPrint(
+      '[login] rede indisponivel; usando config salva ha ${cached.age.inMinutes} min',
+    );
+
+    _user = cached.user;
+    _operator = cached.operator;
+    _payloads = cached.payloads;
+    _selected = _payloads.isEmpty ? null : _payloads.first;
+    _password = password; // a que o usuario acabou de digitar, nao a cacheada
+    _offlineLogin = true;
+
+    _notice = 'Sem confirmar com o servidor ainda — conecte para validar.';
+    _startTimers();
+    return true;
+  }
+
+  /// Ultimo recurso quando nao ha cache algum: sobe o tunel direto contra a
+  /// VPS (coordenadas fixas, sem payload de operadora) e deixa o proprio
+  /// handshake SSH confirmar usuario/senha primeiro. E o unico jeito de logar
+  /// num aparelho novo quando a rede aberta bloqueia so a chamada de API — a
+  /// cadeia de estrategias do tunel tem 4 transportes tentando furar
+  /// exatamente esse tipo de bloqueio (o mesmo motivo pelo qual o tunel em si
+  /// funciona mesmo sem saldo).
+  ///
+  /// Com o tunel de pe (e o SOCKS ja armado pelo listener do _bindTunnel),
+  /// repete a MESMA chamada de /api/app/login que acabou de falhar pela rede
+  /// aberta — agora ela sai pelo tunel. `/api/app/config` exige token, entao
+  /// nao da para simplesmente chamar refreshConfig(): sem essa segunda
+  /// chamada de login, nunca existiria um token para autenticar nada.
+  Future<bool> _tryBootstrapTunnelLogin(String username, String password) async {
+    debugPrint('[login] sem cache; tentando confirmar via tunel direto');
+
+    _bindTunnel(_bootstrapPayload);
+
+    try {
+      await _tunnel!.connect(
+        _bootstrapPayload,
+        username: username,
+        password: password,
+        bypassPackages: bypass.packages.toList(),
+        operatorCode: _operator.code ?? _guessOperatorCode(_sim),
+      );
+    } on TunnelException catch (error) {
+      debugPrint('[login] tunel de resgate falhou: ${error.message}');
+      _error = error.authFailed
+          ? 'Usuario ou senha incorretos.'
+          : 'Nao consegui falar com o servidor por nenhum caminho. '
+              'Verifique sua conexao e tente novamente.';
+      return false;
+    } catch (error) {
+      debugPrint('[login] tunel de resgate — erro inesperado: $error');
+      return false;
+    }
+
+    debugPrint('[login] tunel de resgate conectado — repetindo login por dentro dele');
+
+    try {
+      final data = await _api.post('/api/app/login', _loginBody(username, password));
+      await _applyLoginSuccess(data, username: username, password: password, remember: true);
+      return true;
+    } catch (e) {
+      // Caso raro: o SSH ja provou que a senha esta certa, mas a chamada de
+      // login por dentro do tunel falhou por outro motivo (API recusou por
+      // regra de negocio, erro de parsing, etc.). O tunel continua de pe —
+      // trata como login offline-equivalente em vez de derrubar a conexao
+      // que acabou de furar o bloqueio da operadora so por causa de um erro
+      // secundario nao relacionado a rede.
+      debugPrint('[login] tunel ok mas login por dentro dele falhou: $e');
+      _user = AppUser(id: '', username: username, connectionLimit: 1);
+      _password = password;
+      _payloads = const [_bootstrapPayload];
+      _selected = _bootstrapPayload;
+      _offlineLogin = true;
+      _notice = 'Conectado — confirmando seus dados com o servidor...';
+      _startTimers();
+      return true;
+    }
+  }
+
+  Map<String, dynamic> _loginBody(String username, String password) => {
+        'username': username.trim(),
+        'password': password,
+        'deviceId': _deviceId,
+        'deviceName': _deviceName,
+        'appVersion': _appVersion,
+        'sim': {
+          'operatorName': _sim.operatorName,
+          'mccMnc': _sim.mccMnc,
+        },
+      };
+
+  /// Processa uma resposta de /api/app/login bem-sucedida — usado tanto pelo
+  /// caminho normal (rede aberta) quanto pelo tunel de resgate (mesma
+  /// chamada, roteada por dentro do SOCKS depois que o SSH ja autenticou).
+  Future<void> _applyLoginSuccess(
+    Map<String, dynamic> data, {
+    required String username,
+    required String password,
+    required bool remember,
+  }) async {
+    _api.setToken(data['token'] as String);
+    await Storage.saveToken(data['token'] as String);
+
+    _user = AppUser.fromJson(data['user'] as Map<String, dynamic>);
+    _password = password; // o tunel SSH autentica com as mesmas credenciais
+    _operator = OperatorInfo.fromJson(data['operator'] as Map<String, dynamic>);
+    _applyPayloads(data['payloads'] as List<dynamic>);
+    _offlineLogin = false;
+    _notice = null;
+
+    if (remember) {
+      await Storage.saveCredentials(username, password);
+    }
+
+    // Atualiza o cache para poder cair aqui da proxima vez que a rede aberta
+    // estiver ruim.
+    await ConfigCache.save(
+      username: username,
+      user: _user!,
+      operator: _operator,
+      payloads: _payloads,
+    );
+
+    _startTimers();
   }
 
   Future<void> logout() async {
@@ -273,9 +464,26 @@ class AppState extends ChangeNotifier {
         'connectionLimit': userJson['connectionLimit'],
       });
 
+      // O backend confirmou os dados — sai do modo offline (se estava nele)
+      // e atualiza o cache para a proxima vez que a rede aberta falhar.
+      if (_offlineLogin) {
+        _offlineLogin = false;
+        _notice = null;
+        debugPrint('[login] confirmado com o backend — saiu do modo offline');
+      }
+      await ConfigCache.save(
+        username: _user!.username,
+        user: _user!,
+        operator: _operator,
+        payloads: _payloads,
+      );
+
       notifyListeners();
     } on ApiException catch (e) {
-      _error = e.message;
+      // Em modo offline, uma falha aqui e esperada (e a mesma rede que
+      // bloqueou o login) — nao sobrescreve o que ja esta funcionando com
+      // o tunel ativo.
+      if (!_offlineLogin) _error = e.message;
       notifyListeners();
     } catch (_) {
       // offline: mantem a configuracao ja carregada
@@ -302,6 +510,23 @@ class AppState extends ChangeNotifier {
     _statusSub = engine.status.listen((value) {
       _connection = value;
       _syncOverlay();
+
+      if (value == ConnectionStatus.connected) {
+        // A API do proprio app fica de fora da VPN por design (bypass), entao
+        // so passa a usar o tunel se a gente disser explicitamente. Isso e o
+        // que permite confirmar o login (refreshConfig) pelo MESMO caminho
+        // que acabou de furar o bloqueio da operadora — em vez de tentar de
+        // novo pela rede aberta, que e onde o 302 acontecia.
+        final port = engine.socksPort;
+        if (port != null) _api.useSocksProxy(port);
+
+        if (_offlineLogin) {
+          unawaited(refreshConfig());
+        }
+      } else if (value == ConnectionStatus.disconnected) {
+        _api.useSocksProxy(null);
+      }
+
       notifyListeners();
     });
 

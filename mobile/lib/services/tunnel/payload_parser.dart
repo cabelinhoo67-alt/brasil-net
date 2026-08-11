@@ -38,13 +38,20 @@ class PayloadParser {
   }) {
     final hostPort = '$host:$port';
 
-    return payload
+    // Cadeia de substituicao com ordem deterministica: placeholders maiores
+    // primeiro ([host_port] antes de [host]/[port]) para nao haver vazamento
+    // de substring (ex.: [host_port] contem "[host]"). [raw] e resolvido com o
+    // metodo recebido (nao fixa "CONNECT") — permite payloads GET/PUT com
+    // upgrade, ex.: "GET [raw]" vira "GET host:port HTTP/1.1".
+    var out = payload
         .replaceAll('[host_port]', hostPort)
         .replaceAll('[host]', host)
         .replaceAll('[port]', '$port')
-        .replaceAll('[protocol]', protocol)
         .replaceAll('[method]', method)
-        .replaceAll('[raw]', '$method $hostPort $protocol')
+        .replaceAll('[raw]', '$method $hostPort $protocol');
+
+    return out
+        .replaceAll('[protocol]', protocol)
         .replaceAll('[ua]', userAgent ?? _userAgent)
         .replaceAll('[net_data]', '')
         .replaceAll('[crlf]', '\r\n')

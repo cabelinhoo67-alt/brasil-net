@@ -110,6 +110,41 @@ fi
 cd "$INSTALL_DIR"
 npm install --omit=dev --no-audit --no-fund
 
+# ------------------------------------------------- ponte WebSocket -> SSH
+# Fallback wss:// do app movel (operadoras que so liberam HTTPS/WS
+# reconhecivel). Fica atras do Nginx (location /tun); o install.sh nao toca
+# no Nginx — quem faz o TLS e o upgrade e a config do site (ver DEPLOY.md).
+WS_BRIDGE_DIR="/opt/tunnel-ws-bridge"
+if [ -d "$SCRIPT_DIR/ws-bridge" ]; then
+  info "instalando a ponte WebSocket em $WS_BRIDGE_DIR"
+  mkdir -p "$WS_BRIDGE_DIR"
+
+  if ! id -u tunnel-ws >/dev/null 2>&1; then
+    info "criando usuario tunnel-ws (sem shell, sem home)"
+    useradd --system --no-create-home --shell /usr/sbin/nologin tunnel-ws
+  fi
+
+  cp -r "$SCRIPT_DIR/ws-bridge/src" "$SCRIPT_DIR/ws-bridge/package.json" "$WS_BRIDGE_DIR/"
+
+  if [ ! -f "$WS_BRIDGE_DIR/.env" ]; then
+    cp "$SCRIPT_DIR/ws-bridge/.env.example" "$WS_BRIDGE_DIR/.env"
+    chmod 600 "$WS_BRIDGE_DIR/.env"
+  fi
+  chown -R tunnel-ws:tunnel-ws "$WS_BRIDGE_DIR"
+
+  (
+    cd "$WS_BRIDGE_DIR"
+    npm install --omit=dev --no-audit --no-fund
+  )
+
+  info "registrando o servico da ponte"
+  cp "$SCRIPT_DIR/systemd/ws-bridge.service" /etc/systemd/system/
+  systemctl enable ws-bridge
+  warn "subir a ponte: systemctl start ws-bridge (precisa do location /tun no Nginx — veja DEPLOY.md)"
+else
+  warn "ws-bridge/ nao encontrado; pulando instalacao da ponte WebSocket"
+fi
+
 # -------------------------------------------------------------------- systemd
 info "registrando o servico"
 cp "$SCRIPT_DIR/systemd/tunnel-agent.service" /etc/systemd/system/

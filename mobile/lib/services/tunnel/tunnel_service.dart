@@ -12,6 +12,15 @@ abstract class TunnelService {
 
   ConnectionStatus get currentStatus;
 
+  /// Porta do SOCKS5 local quando o tunel esta ativo, ou null.
+  ///
+  /// O proprio app fica de fora da VPN nativa (bypass, evita loop de
+  /// roteamento da conexao SSH) — entao, mesmo com o tunel de pe, as
+  /// chamadas de API do app NAO passam por ele automaticamente. Quem quiser
+  /// que uma chamada especifica va pelo tunel precisa falar SOCKS5 com esta
+  /// porta explicitamente (ver `ApiClient.useSocksProxy`).
+  int? get socksPort;
+
   /// Sobe o tunel para o [payload] escolhido, autenticando com as credenciais
   /// do proprio cliente (o mesmo usuario/senha do login do app).
   ///
@@ -32,10 +41,15 @@ abstract class TunnelService {
 
 /// Erro de tunel com mensagem ja pronta para a tela.
 class TunnelException implements Exception {
-  const TunnelException(this.message, {this.detail});
+  const TunnelException(this.message, {this.detail, this.authFailed = false});
 
   final String message;
   final Object? detail;
+
+  /// true quando o SSH respondeu e recusou usuario/senha — ao contrario de
+  /// timeout/bloqueio de rede, trocar de transporte nao resolve isso, entao a
+  /// cadeia de fallback deve parar em vez de tentar a proxima estrategia.
+  final bool authFailed;
 
   @override
   String toString() => detail == null ? message : '$message ($detail)';

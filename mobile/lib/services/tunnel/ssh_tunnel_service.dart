@@ -13,6 +13,7 @@ import 'raw_ssh_socket.dart';
 import 'socks5_server.dart';
 import 'tunnel_service.dart';
 import 'vpn_bridge.dart';
+import 'ws_ssh_socket.dart';
 
 /// Motor de tunel SSH real, com resiliencia de rede tipo "zero-drop".
 ///
@@ -82,6 +83,9 @@ class SshTunnelService implements TunnelService {
 
   @override
   ConnectionStatus get currentStatus => _status;
+
+  @override
+  int? get socksPort => _socks?.isRunning == true ? _socks?.port : null;
 
   void _emit(ConnectionStatus value) {
     _status = value;
@@ -153,12 +157,17 @@ class SshTunnelService implements TunnelService {
 
   /// Tenta cada [ConnectStrategy] da cadeia ate uma funcionar.
   ///
-  /// Uma estrategia falha por dois motivos bem diferentes:
+  /// Arquitetura de rotacao (failover agressivo): a cadeia inteira e percorrida
+  /// em loop continuo ate o deadline global de rotacao. Uma estrategia falha
+  /// por dois motivos bem diferentes:
   ///   - portal cativo detectado -> tenta a proxima em silencio (e o cenario
   ///     do chip sem saldo, que e exatamente o que a cadeia existe para tratar)
   ///   - erro de rede/timeout -> tambem tenta a proxima, mas loga como erro
   ///
-  /// So propaga excecao se TODAS as estrategias falharem.
+  /// O laço so e interrompido quando uma tentativa obtem sucesso — o handshake
+  /// 101 Switching Protocols (WebSocket/upgrade) ou a autenticacao SSH
+  /// completa. So propaga excecao se TODAS as estrategias falharem dentro do
+  /// teto de [rotationDeadline].
   Future<_ConnectResult> _connectWithFallback(
     Payload payload,
     ServerInfo server,
@@ -180,36 +189,63 @@ class SshTunnelService implements TunnelService {
     // trava a cadeia inteira, mesmo com os outros timeouts no lugar.
     const strategyDeadline = Duration(seconds: 20);
 
-    for (var i = 0; i < chain.length; i++) {
-      final strategy = chain[i];
-      _log('tentativa ${i + 1}/${chain.length}: ${strategy.label}');
+    // Deadline global de rotacao: o loop continua girando pelas estrategias
+    // ate obter o handshake de sucesso ou estourar este teto (90s = ~4-5
+    // passagens completas pela cadeia). Um teto curto demais faria o usuario
+    // ver erro quando a rede esta apenas "esquentando"; um teto longo demais
+    // prenderia o app em "conectando" quando o bloqueio e definitivo.
+    const rotationDeadline = Duration(seconds: 90);
+    final startedAt = DateTime.now();
 
-      try {
-        return await _attempt(strategy, username, password).timeout(
-          strategyDeadline,
-          onTimeout: () {
-            _log('tentativa "${strategy.label}" travou alem de ${strategyDeadline.inSeconds}s');
-            // A Future original do _attempt continua rodando em segundo
-            // plano (Dart nao cancela); derruba o que ela possa ter deixado
-            // pendurado (client/socks) antes de seguir para a proxima.
-            _forceCloseSession();
-            throw TunnelException(
-              'Sem resposta do servidor em ${strategyDeadline.inSeconds}s '
-              '(rede pode estar bloqueando a conexao).',
-            );
-          },
-        );
-      } on _PortalDetected catch (error) {
-        _log('portal cativo detectado (${error.status}) — trocando de estrategia');
-        lastError = const TunnelException(
-          'A operadora interceptou a conexao (possivel falta de credito).',
-        );
-        continue;
-      } on TunnelException catch (error) {
-        _log('estrategia "${strategy.label}" falhou: ${error.message}');
-        lastError = error;
-        continue;
+    while (true) {
+      // A cada passagem completa, verifica o teto global e o estado de auth.
+      if (DateTime.now().difference(startedAt) >= rotationDeadline) {
+        _log('teto de ${rotationDeadline.inSeconds}s de rotacao atingido');
+        break;
       }
+
+      for (var i = 0; i < chain.length; i++) {
+        final strategy = chain[i];
+        _log('tentativa ${i + 1}/${chain.length}: ${strategy.label}');
+
+        try {
+          return await _attempt(strategy, username, password).timeout(
+            strategyDeadline,
+            onTimeout: () {
+              _log('tentativa "${strategy.label}" travou alem de ${strategyDeadline.inSeconds}s');
+              // A Future original do _attempt continua rodando em segundo
+              // plano (Dart nao cancela); derruba o que ela possa ter deixado
+              // pendurado (client/socks) antes de seguir para a proxima.
+              _forceCloseSession();
+              throw TunnelException(
+                'Sem resposta do servidor em ${strategyDeadline.inSeconds}s '
+                '(rede pode estar bloqueando a conexao).',
+              );
+            },
+          );
+        } on _PortalDetected catch (error) {
+          _log('portal cativo detectado (${error.status}) — trocando de estrategia');
+          lastError = const TunnelException(
+            'A operadora interceptou a conexao (possivel falta de credito).',
+          );
+          continue;
+        } on TunnelException catch (error) {
+          _log('estrategia "${strategy.label}" falhou: ${error.message}');
+          lastError = error;
+          // Senha incorreta e o mesmo problema em qualquer transporte — nao
+          // adianta insistir nas proximas estrategias da cadeia.
+          if (error.authFailed) break;
+          continue;
+        }
+      }
+
+      // Auth falhou: nao adianta outra rodada, credenciais estao erradas.
+      if (lastError?.authFailed == true) break;
+
+      // Pequena pausa entre rodadas completas: deixa a rede estabilizar e o
+      // DNS dos SNIs que falharam "esfriar" antes de tentar de novo.
+      _log('nenhuma rota funcionou nesta rodada — tentando novamente');
+      await Future<void>.delayed(const Duration(milliseconds: 800));
     }
 
     throw lastError ??
@@ -252,6 +288,18 @@ class SshTunnelService implements TunnelService {
         onTimeout: () => throw const TunnelException(
           'O servidor nao respondeu a autenticacao a tempo.',
         ),
+      );
+    } on SSHAuthError catch (error) {
+      // O SSH respondeu e recusou as credenciais — nao e bloqueio de rede,
+      // e trocar de transporte na cadeia nao vai mudar isso. Sinaliza
+      // authFailed para o chamador parar de tentar as proximas estrategias.
+      try {
+        client.close();
+      } catch (_) {}
+      throw TunnelException(
+        'Usuario ou senha incorretos.',
+        detail: error,
+        authFailed: true,
       );
     } catch (error) {
       try {
@@ -302,9 +350,27 @@ class SshTunnelService implements TunnelService {
     return _ConnectResult(socksPort: socksPort);
   }
 
-  /// Abre o transporte (TCP + payload + TLS) para uma estrategia especifica,
-  /// inspecionando a primeira resposta em busca de sinais de portal cativo.
+  /// Abre o transporte (TCP + payload + TLS, ou WebSocket) para uma
+  /// estrategia especifica, inspecionando a primeira resposta em busca de
+  /// sinais de portal cativo quando aplicavel.
   Future<SSHSocket> _openTransport(ConnectStrategy strategy) async {
+    if (strategy.mode == TransportMode.webSocket) {
+      final url = strategy.wsUrl;
+      if (url == null) {
+        throw const TunnelException('Estrategia WebSocket sem URL configurada.');
+      }
+      _log('WebSocket $url');
+      // wss:// ja e HTTPS por baixo — nao ha payload nem SNI custom aqui: o
+      // certificado e o mesmo do dominio, entao nao ha o que "disfarcar". Os
+      // headers extras (User-Agent/Origin) sao passados para o handshake HTTP
+      // parecer HTTPS comum de navegador para a operadora.
+      return WebSocketSSHSocket.connect(
+        url,
+        timeout: const Duration(seconds: 12),
+        headers: strategy.wsHeaders,
+      );
+    }
+
     final usesPayload = strategy.mode == TransportMode.payload;
     final usesTls = strategy.mode == TransportMode.tlsSni;
 
@@ -476,12 +542,20 @@ class SshTunnelService implements TunnelService {
       throw _PortalDetected(_extractStatus(response));
     }
 
+    // Handshake de sucesso: 200 (CONNECT aceito, tunel TCP puro) ou 101
+    // (Switching Protocols — a conexao foi promovida, ex.: para WebSocket).
+    // O 101 e o sinal do upgrade de protocolo; apos ele, o tunel pode mandar
+    // o banner SSH direto no mesmo socket.
     final ok = firstLine.contains(' 200 ') || firstLine.contains(' 101 ');
     if (!ok) {
       throw TunnelException(
         'O proxy recusou o payload.',
         detail: firstLine.isEmpty ? 'resposta vazia' : firstLine,
       );
+    }
+
+    if (firstLine.contains(' 101 ')) {
+      _log('handshake 101 Switching Protocols confirmado');
     }
   }
 

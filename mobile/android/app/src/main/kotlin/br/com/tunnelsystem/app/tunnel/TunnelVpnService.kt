@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import br.com.tunnelsystem.app.MainActivity
 import br.com.tunnelsystem.app.R
 import java.net.InetAddress
@@ -89,6 +90,14 @@ class TunnelVpnService : VpnService() {
             rebind(intent.getIntExtra(EXTRA_SOCKS_PORT, 0))
             return START_STICKY
         }
+
+        // O Android 8+ exige startForeground() em ate ~5s apos o servico ser
+        // criado por startForegroundService(). Se qualquer checagem abaixo
+        // lancar excecao (ex.: lib tun2socks ausente), o processo morreria com
+        // "did not then call Service.startForeground()". Chamar aqui, antes de
+        // qualquer codigo que possa falhar, elimina a corrida — a notificacao
+        // ja fica de pe e o fluxo normal a atualiza via startForegroundCompat().
+        startForegroundCompat(intent?.getStringExtra(EXTRA_SESSION_NAME) ?: "Tunnel")
 
         // intent == null significa que o Android matou o processo e recriou o
         // servico pelo START_STICKY. A sessao SSH vive no isolate Dart, que
@@ -391,19 +400,22 @@ class TunnelVpnService : VpnService() {
 
     // --------------------------- notificacao ---------------------------------
 
-    // minSdk do app e 26, entao NotificationChannel e o Builder com canal
-    // estao sempre disponiveis — sem guarda de versao aqui.
+    // NotificationChannel e API 26; o minSdk do app e 21, entao o canal so e
+    // criado quando existe de verdade. O NotificationCompat cuida do resto em
+    // versoes antigas (ignora o canal e usa os campos legados do Builder).
     private fun startForegroundCompat(sessionName: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Conexao VPN",
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = "Mostra o status do tunel enquanto ele esta ativo"
-            setShowBadge(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Conexao VPN",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Mostra o status do tunel enquanto ele esta ativo"
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(channel)
         }
-        manager.createNotificationChannel(channel)
 
         val openApp = PendingIntent.getActivity(
             this,
@@ -448,7 +460,11 @@ class TunnelVpnService : VpnService() {
         //
         // FLAG_NO_CLEAR e propriedade do Notification construido, nao do
         // Builder — por isso e aplicada depois do build(), nao encadeada nele.
-        val notification = Notification.Builder(this, CHANNEL_ID)
+        //
+        // NotificationCompat.Builder funciona em qualquer API: em >= 26 usa o
+        // canal; em versoes antigas cai para os campos legados (importancia,
+        // prioridade), que e exatamente o que o app antigo (minSdk 26) fazia.
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(status ?: "Tunel conectado")
             .setContentText(sessionLabel)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -456,8 +472,8 @@ class TunnelVpnService : VpnService() {
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
         notification.flags = notification.flags or Notification.FLAG_NO_CLEAR
@@ -474,6 +490,13 @@ class TunnelVpnService : VpnService() {
     }
 
     private fun stopForegroundCompat() {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        // STOP_FOREGROUND_REMOVE (API 24); em versoes antigas o stopForeground
+        // sem argumentos remove a notificacao por padrao.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
     }
 }

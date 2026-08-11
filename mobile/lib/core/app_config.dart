@@ -3,15 +3,20 @@ class AppConfig {
 
   /// URL do backend.
   ///
-  /// Emulador Android: 10.0.2.2 aponta para o localhost do PC.
-  /// Aparelho fisico na mesma rede: use o IP da maquina (ex.: 192.168.0.15).
-  /// Producao: informe o dominio com https.
+  /// O padrao e SEMPRE producao — um build de release sem --dart-define
+  /// precisa funcionar em qualquer aparelho fisico, entao o valor de dev
+  /// (emulador/rede local) e opt-in, nunca o silencioso default de build.
+  /// String.fromEnvironment resolve em tempo de COMPILACAO: esquecer de
+  /// passar a flag em dev cai em producao (seguro); esquecer em release
+  /// nunca mais aponta pro localhost de ninguem (o bug que gerou o
+  /// timeout de 15s em campo — ver docs/TUNNEL.md).
   ///
-  /// Sobrescreva sem editar o codigo:
-  ///   flutter run --dart-define=API_URL=http://192.168.0.15:3333
+  /// Para apontar pro seu ambiente de dev:
+  ///   Emulador Android:      --dart-define=API_URL=http://10.0.2.2:3333
+  ///   Aparelho fisico na rede: --dart-define=API_URL=http://192.168.0.15:3333
   static const String apiUrl = String.fromEnvironment(
     'API_URL',
-    defaultValue: 'http://10.0.2.2:3333',
+    defaultValue: 'https://brasilnetpro.click',
   );
 
   static const String appName = 'Tunnel App';

@@ -1,0 +1,13 @@
+{
+  "name": "tunnel-ws-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ponte WebSocket -> TCP para o sshd local, fallback de conexao para operadoras que so liberam trafego HTTPS/WS reconhecivel na porta 443",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

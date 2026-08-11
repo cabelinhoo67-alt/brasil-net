@@ -53,6 +53,9 @@ class OperatorInfo {
         detected: (json['detected'] ?? false) as bool,
         logoUrl: json['logoUrl'] as String?,
       );
+
+  Map<String, dynamic> toJson() =>
+      {'code': code, 'name': name, 'detected': detected, 'logoUrl': logoUrl};
 }
 
 class ServerInfo {
@@ -80,6 +83,15 @@ class ServerInfo {
         sslPort: (json['sslPort'] ?? 443) as int,
         proxyPort: (json['proxyPort'] ?? 80) as int,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'host': host,
+        'sshPort': sshPort,
+        'sslPort': sslPort,
+        'proxyPort': proxyPort,
+      };
 }
 
 /// Configuracao de conexao. O backend so envia payloads da operadora do chip.
@@ -126,6 +138,20 @@ class Payload {
         extra: (json['extra'] as Map<String, dynamic>?) ?? const {},
       );
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'mode': mode,
+        'content': content,
+        'sni': sni,
+        'proxyHost': proxyHost,
+        'proxyPort': proxyPort,
+        'dnsHost': dnsHost,
+        'publicKey': publicKey,
+        'server': server?.toJson(),
+        'extra': extra,
+      };
+
   String get modeLabel => switch (mode) {
         'SSH_DIRECT' => 'SSH Direto',
         'SSH_PAYLOAD' => 'SSH + Payload',
@@ -167,6 +193,16 @@ class AppUser {
         connectionLimit: (json['connectionLimit'] ?? 1) as int,
         planName: (json['plan'] as Map<String, dynamic>?)?['name'] as String?,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'fullName': fullName,
+        'expiresAt': expiresAt?.toIso8601String(),
+        'daysLeft': daysLeft,
+        'connectionLimit': connectionLimit,
+        'plan': planName == null ? null : {'name': planName},
+      };
 }
 
 enum ConnectionStatus { disconnected, connecting, connected, error }

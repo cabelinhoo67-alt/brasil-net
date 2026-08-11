@@ -34,6 +34,11 @@ class V2RayTunnelService implements TunnelService {
   @override
   ConnectionStatus get currentStatus => _status;
 
+  // O V2Ray/Xray roteia o dispositivo pela propria VpnService nativa dele,
+  // sem expor um SOCKS5 local que o app possa usar para as proprias chamadas.
+  @override
+  int? get socksPort => null;
+
   void _emit(ConnectionStatus value) {
     _status = value;
     if (!_statusController.isClosed) _statusController.add(value);

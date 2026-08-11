@@ -1,0 +1,37 @@
+[Unit]
+Description=Tunnel WS Bridge - WebSocket -> SSH (fallback wss:// do app movel)
+Documentation=https://github.com/seu-usuario/tunnel-system
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Usuario dedicado sem privilegio: o bridge so escuta na porta alta e abre
+# conexao TCP para o sshd local — nao precisa de root nem do grupo tunnel.
+User=tunnel-ws
+Group=tunnel-ws
+WorkingDirectory=/opt/tunnel-ws-bridge
+EnvironmentFile=/opt/tunnel-ws-bridge/.env
+ExecStart=/usr/bin/node /opt/tunnel-ws-bridge/src/index.js
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tunnel-ws-bridge
+
+# Hardening: nada de fs de escrita, nada de kernel, so sockets de rede local.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
