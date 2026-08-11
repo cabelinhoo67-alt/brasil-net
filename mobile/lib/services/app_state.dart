@@ -312,13 +312,21 @@ class AppState extends ChangeNotifier {
       );
     } on TunnelException catch (error) {
       debugPrint('[login] tunel de resgate falhou: ${error.message}');
-      _error = error.authFailed
-          ? 'Usuario ou senha incorretos.'
-          : 'Nao consegui falar com o servidor por nenhum caminho. '
-              'Verifique sua conexao e tente novamente.';
+      if (error.authFailed) {
+        _error = 'Usuario ou senha incorretos.';
+      } else if (error.detail != null) {
+        // Inclui a etapa que falhou para o usuario conseguir agir (ex.:
+        // "Nao consegui alcancar host:porta" aponta bloqueio de rede; um
+        // detail de TLS aponta interferencia da operadora).
+        _error = 'Nao consegui falar com o servidor. ${error.detail}';
+      } else {
+        _error = 'Nao consegui falar com o servidor por nenhum caminho. '
+            'Verifique sua conexao e tente novamente.';
+      }
       return false;
     } catch (error) {
       debugPrint('[login] tunel de resgate — erro inesperado: $error');
+      _error = 'Nao consegui falar com o servidor. Tente novamente.';
       return false;
     }
 
@@ -567,7 +575,9 @@ class AppState extends ChangeNotifier {
         operatorCode: _operator.code,
       );
     } on TunnelException catch (e) {
-      _error = e.message;
+      // Expõe a etapa que falhou (TCP, payload, TLS, SSH ou auth) via detail,
+      // quando houver — em vez de so a mensagem generica.
+      _error = e.detail == null ? e.message : '${e.message} (${e.detail})';
       notifyListeners();
     } catch (e) {
       _error = 'Falha ao conectar: $e';

@@ -56,6 +56,13 @@ class SshTunnelService implements TunnelService {
   Timer? _keepAlive;
   ConnectionStatus _status = ConnectionStatus.disconnected;
 
+  /// Controle do watchdog de sessao meio-aberta: um socket SSH que parou de
+  /// responder a ping nao fecha sozinho (o transporte nao detecta o bloqueio
+  /// silencioso da operadora), entao a UI continuaria "conectado" para sempre.
+  /// Este contador e o equivalente Dart do ServerAliveCountMax do OpenSSH.
+  int _keepAliveFailures = 0;
+  bool _keepAliveFiring = false;
+
   StreamSubscription<String>? _vpnEvents;
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
@@ -74,6 +81,13 @@ class SshTunnelService implements TunnelService {
 
   static const _maxBackoff = Duration(seconds: 30);
   static const _maxReconnectAttempts = 8;
+
+  /// Intervalo entre pings de keep-alive (equivalente a ServerAliveInterval).
+  static const _keepAliveInterval = Duration(seconds: 30);
+
+  /// Falhas consecutivas de ping que toleramos antes de declarar a sessao
+  /// morta (equivalente a ServerAliveCountMax=3 do OpenSSH).
+  static const _maxKeepAliveFailures = 3;
 
   @override
   Stream<ConnectionStatus> get status => _statusController.stream;
@@ -257,6 +271,8 @@ class SshTunnelService implements TunnelService {
   void _forceCloseSession() {
     _keepAlive?.cancel();
     _keepAlive = null;
+    _keepAliveFailures = 0;
+    _keepAliveFiring = false;
     try {
       _socks?.stop();
     } catch (_) {}
@@ -339,11 +355,47 @@ class SshTunnelService implements TunnelService {
     final socksPort = await socks.start();
     _socks = socks;
 
-    _keepAlive = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Watchdog de sessao meio-aberta (equivalente a ServerAliveInterval +
+    // ServerAliveCountMax do OpenSSH): o ping mantem a sessao viva na rede, e
+    // se a sessao parar de responder, fechamos o client para o `client.done`
+    // disparar o auto-reconnect — em vez de deixar a UI presa em "conectado"
+    // com um socket morto. O timeout do ping cobre o caso de a operadora
+    // engolir os pacotes sem avisar (meio-aberto).
+    _keepAliveFailures = 0;
+    _keepAlive = Timer.periodic(_keepAliveInterval, (_) async {
+      if (_keepAliveFiring) return;
+      if (client.isClosed) {
+        // O transporte ja morreu; o handler do `client.done` cuida do
+        // reconnect. Aqui so garantimos que o contador nao sobe a toa.
+        _keepAliveFailures = 0;
+        return;
+      }
+
+      _keepAliveFiring = true;
       try {
-        client.ping();
+        await client
+            .ping()
+            .timeout(const Duration(seconds: 12), onTimeout: () {
+              throw const TunnelException('ping estourou o timeout');
+            });
+        // Ping respondeu: sessao viva, zera o contador de falhas.
+        _keepAliveFailures = 0;
       } catch (error) {
-        _log('keepalive falhou: $error');
+        _keepAliveFailures++;
+        _log('keepalive falhou ($_keepAliveFailures/$_maxKeepAliveFailures): $error');
+        if (_keepAliveFailures >= _maxKeepAliveFailures) {
+          _log('sessao SSH inativa — derrubando para reconectar');
+          _keepAliveFailures = 0;
+          // Derruba o client morto; o handler do `client.done` (instalado
+          // no _attempt) ve o transporte fechar e agenda a reconexao.
+          try {
+            client.close();
+          } catch (_) {
+            /* ja fechado */
+          }
+        }
+      } finally {
+        _keepAliveFiring = false;
       }
     });
 
@@ -578,6 +630,34 @@ class SshTunnelService implements TunnelService {
           _log('rede disponivel — reconectando');
           _scheduleReconnect();
           break;
+
+        case 'disconnected':
+          // A TUN caiu sem ordem nossa (ex.: revogacao de permissao pelo
+          // sistema, ou erro fatal no nativo). Se ainda temos credenciais e
+          // o usuario nao desligou, tenta refazer a sessao do zero.
+          if (_lastPayload != null) {
+            _log('VPN encerrada pelo sistema — tentando reconectar');
+            _scheduleReconnect();
+          }
+          break;
+
+        default:
+          if (event.startsWith('error:')) {
+            final detail = event.substring(6);
+            _log('erro da VPN nativa: $detail');
+            // Falha fatal ao subir a TUN (ex.: tun2socks ausente): o tunel
+            // SSH pode ate estar de pe, mas sem a interface o trafego nao
+            // passa. Derrete a sessao e emite erro — em vez de deixar o app
+            // preso em "conectado" sem internet, que e o sintoma que o
+            // usuario descreve como "tunel fechado".
+            if (_lastPayload != null) {
+              _log('VPN nativa falhou — encerrando sessao');
+              unawaited(_teardownSession(stopVpn: true).then((_) {
+                _emit(ConnectionStatus.error);
+              }));
+            }
+          }
+          break;
       }
     });
   }
@@ -608,7 +688,11 @@ class SshTunnelService implements TunnelService {
 
     try {
       if (_reconnectAttempt > _maxReconnectAttempts) {
-        _log('desisti apos $_maxReconnectAttempts tentativas');
+        _log(
+          'desisti apos $_maxReconnectAttempts tentativas de reconexao — '
+          'feche o tunel e tente de novo, ou verifique se o servidor '
+          '${_lastPayload?.server?.host ?? ''} esta acessivel.',
+        );
         await _teardownSession(stopVpn: true);
         _emit(ConnectionStatus.error);
         return;
@@ -641,6 +725,18 @@ class SshTunnelService implements TunnelService {
       _log('reconectado com sucesso');
     } on TunnelException catch (error) {
       _log('reconexao falhou: ${error.message}');
+      if (error.detail != null) {
+        _log('detalhe: ${error.detail}');
+      }
+      if (error.authFailed) {
+        // O servidor recusou as credenciais durante a reconexao: continuar
+        // tentando so queima bateria e dados. Desiste ja com erro claro.
+        _log('credenciais recusadas pelo servidor — parando de tentar');
+        _reconnecting = false;
+        await _teardownSession(stopVpn: true);
+        _emit(ConnectionStatus.error);
+        return;
+      }
       _reconnecting = false;
       _scheduleReconnect();
       return;

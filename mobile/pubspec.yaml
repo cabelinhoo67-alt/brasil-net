@@ -11,7 +11,14 @@ publish_to: "none"
 # sync silencioso no boot, hot reload da config no TunnelConnectionManager e
 # fallback offline em assets. Precisa ser > 3009 (publicado) para o OTA
 # detectar novidade em qualquer aparelho e o Android aceitar a instalacao.
-version: 1.2.2+3010
+#
+# 3011: Correcao definitiva do "tunel fechado" - watchdog de sessao meio-aberta
+# no keepalive (ServerAliveInterval/CountMax do OpenSSH em Dart): ping com
+# timeout e limite de 3 falhas consecutivas antes de derrubar a sessao morta e
+# reconectar; _attemptReconnect para em authFailed (sem queimar tentativas);
+# _watchNetwork trata eventos "error:" e "disconnected" do VpnService nativo;
+# mensagens de erro com diagnostico da etapa que falhou (via TunnelException.detail).
+version: 1.2.3+3011
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
